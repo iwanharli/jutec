@@ -4,6 +4,7 @@
 package evidence
 
 import (
+	"jutec-go/internal/browser"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -82,7 +83,7 @@ func Capture(ctx context.Context, dir string, captureID, siteID int, url, reques
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", true), chromedp.Flag("disable-gpu", true), chromedp.Flag("no-sandbox", true),
 		chromedp.Flag("ignore-certificate-errors", true), chromedp.UserAgent(DesktopUA), chromedp.WindowSize(1366, 900))
-	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, opts...)
+	allocCtx, cancelAlloc := browser.NewAllocator(ctx, opts...)
 	defer cancelAlloc()
 	tab, cancelTab := chromedp.NewContext(allocCtx)
 	defer cancelTab()

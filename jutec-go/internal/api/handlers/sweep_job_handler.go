@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"jutec-go/internal/service"
@@ -46,7 +47,10 @@ func (h *SweepJobHandler) Start(c *gin.Context) {
 	seen := map[string]bool{}
 	var unique []string
 	for _, kw := range keywords {
-		if !seen[kw] { seen[kw] = true; unique = append(unique, kw) }
+		if !seen[kw] {
+			seen[kw] = true
+			unique = append(unique, kw)
+		}
 	}
 	if len(unique) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "provide at least one keyword or set use_defaults: true"})
@@ -65,8 +69,12 @@ func (h *SweepJobHandler) Start(c *gin.Context) {
 
 	jobID := fmt.Sprintf("sweep-%d", time.Now().UnixMilli())
 	cfg := service.DeepSweepConfig{MaxDepth: req.MaxDepth, MaxURLs: req.MaxURLs}
-	if cfg.MaxDepth <= 0 { cfg.MaxDepth = 3 }
-	if cfg.MaxURLs  <= 0 { cfg.MaxURLs  = 500 }
+	if cfg.MaxDepth <= 0 {
+		cfg.MaxDepth = 3
+	}
+	if cfg.MaxURLs <= 0 {
+		cfg.MaxURLs = 500
+	}
 
 	// Simpan ke DB
 	h.PG.CreateSweepJob(c.Request.Context(), jobID, unique, map[string]any{
@@ -146,7 +154,14 @@ func (h *SweepJobHandler) Status(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "job not found"})
 		return
 	}
-	c.JSON(http.StatusOK, job)
+	// Log & fase hanya ada selama job hidup di memori server
+	since, _ := strconv.Atoi(c.Query("since"))
+	resp := gin.H{"job": job, "live": nil, "events": []service.JobEvent{}}
+	if st, ok := service.GlobalJobManager.Get(job.ID); ok {
+		live, events, _ := st.Snapshot(since)
+		resp["live"], resp["events"] = live, events
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // GET /sweep/active

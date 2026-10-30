@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/url"
 	"strings"
@@ -318,6 +319,29 @@ func (s *DiscoveryService) DeepSweepJob(ctx context.Context, jobID string, keywo
 			job.CheckPause()
 		}
 	}
+	logf := func(kind, format string, args ...any) {
+		if hasJob {
+			job.Logf(kind, format, args...)
+		}
+	}
+	phase := func(p string, depth int) {
+		if hasJob {
+			job.SetPhase(p, depth)
+		}
+	}
+	// Satu baris per situs yang selesai dianalisis
+	logSite := func(res *ScanResult) {
+		switch {
+		case res == nil:
+			return
+		case res.Error != "":
+			logf("skip", "✗ %s — %s", res.URL, shortErr(res.Error))
+		case res.Score != nil && res.Score.IsGambling:
+			logf("found", "✓ %s — judol %s %d%%", res.URL, res.Score.Priority, int(res.Score.Final*100))
+		default:
+			logf("info", "· %s — bukan judol", res.URL)
+		}
+	}
 
 	// Progress counter (atomic-safe via mutex di JobState)
 	processed := 0
@@ -346,7 +370,24 @@ func (s *DiscoveryService) DeepSweepJob(ctx context.Context, jobID string, keywo
 
 	// Depth 0
 	checkPause()
-	allDomains := s.collectDomains(ctx, keywords)
+	phase("Mencari di Google", 0)
+	logf("phase", "Mencari di Google: %d keyword · maks %d URL · level %d", len(keywords), cfg.MaxURLs, cfg.MaxDepth)
+	kwDone := 0
+	var kwMu sync.Mutex
+	allDomains := s.collectDomainsWithProgress(ctx, keywords, func(kw string, n int, cached bool, err error) {
+		kwMu.Lock()
+		kwDone++
+		i := kwDone
+		kwMu.Unlock()
+		switch {
+		case err != nil:
+			logf("warn", "[%d/%d] \"%s\" gagal: %s", i, len(keywords), kw, shortErr(err.Error()))
+		case cached:
+			logf("info", "[%d/%d] \"%s\" → %d domain (cache)", i, len(keywords), kw, n)
+		default:
+			logf("info", "[%d/%d] \"%s\" → %d domain", i, len(keywords), kw, n)
+		}
+	})
 	var seedURLs []string
 	for domain := range allDomains {
 		if !globalSeen[domain] {
@@ -361,11 +402,15 @@ func (s *DiscoveryService) DeepSweepJob(ctx context.Context, jobID string, keywo
 	}
 
 	depth0Stats := DepthStats{Depth: 0, URLsFound: len(seedURLs), NewURLs: len(newSeedURLs), Domains: newSeedURLs}
+	logf("phase", "Hasil Google: %d domain unik · %d baru · %d sudah pernah di-scan (dilewati)", len(seedURLs), len(newSeedURLs), len(seedURLs)-len(newSeedURLs))
 
 	if len(newSeedURLs) > 0 {
 		total := len(newSeedURLs)
-		tickFn := func() {
+		phase("Menganalisis hasil Google", 0)
+		logf("phase", "Menganalisis %d situs dari hasil Google…", total)
+		tickFn := func(res *ScanResult) {
 			processed++
+			logSite(res)
 			updateProgress(total)
 			checkPause()
 		}
@@ -375,6 +420,9 @@ func (s *DiscoveryService) DeepSweepJob(ctx context.Context, jobID string, keywo
 		totalAnalyzed += bulk.Processed
 		totalGambling += bulk.GamblingFound
 		found = totalGambling
+		logf("phase", "Hasil Google selesai: %d dianalisis, %d judol", bulk.Processed, bulk.GamblingFound)
+		phase("Mencari jaringan (CT log, tracking, nameserver, tautan)", 0)
+		logf("phase", "Mencari situs terkait lewat CT log, tracking ID, nameserver, domain alternatif & tautan tersimpan…")
 
 		var enrichWG sync.WaitGroup
 		var ctURLs, trackingURLs, nsURLs, alternateURLs, storedLinkURLs []string
@@ -393,18 +441,31 @@ func (s *DiscoveryService) DeepSweepJob(ctx context.Context, jobID string, keywo
 		nextURLs  = append(nextURLs, alternateURLs...)
 		nextURLs  = append(nextURLs, storedLinkURLs...)
 		perDepth  = append(perDepth, depth0Stats)
+		logf("phase", "Kandidat level 1: %d domain (tautan %d · CT %d · tracking %d · NS %d · alternatif %d · tersimpan %d)",
+			len(nextURLs), len(nextURLs)-len(ctURLs)-len(trackingURLs)-len(nsURLs)-len(alternateURLs)-len(storedLinkURLs),
+			len(ctURLs), len(trackingURLs), len(nsURLs), len(alternateURLs), len(storedLinkURLs))
 
 		currentURLs := nextURLs
 		for depth := 1; depth <= cfg.MaxDepth; depth++ {
 			checkPause()
-			if len(currentURLs) == 0 || totalAnalyzed >= cfg.MaxURLs { break }
+			if len(currentURLs) == 0 {
+				logf("phase", "Berhenti di level %d: tidak ada domain baru untuk diikuti", depth)
+				break
+			}
+			if totalAnalyzed >= cfg.MaxURLs {
+				logf("phase", "Berhenti di level %d: batas %d URL tercapai", depth, cfg.MaxURLs)
+				break
+			}
 			remaining := cfg.MaxURLs - totalAnalyzed
 			if len(currentURLs) > remaining { currentURLs = currentURLs[:remaining] }
 
 			depthStats := DepthStats{Depth: depth, URLsFound: len(currentURLs), NewURLs: len(currentURLs), Domains: currentURLs}
 			depthTotal := len(currentURLs)
-			depthTickFn := func() {
+			phase(fmt.Sprintf("Level %d", depth), depth)
+			logf("phase", "Level %d: menganalisis %d domain…", depth, depthTotal)
+			depthTickFn := func(res *ScanResult) {
 				processed++
+				logSite(res)
 				updateProgress(processed + depthTotal)
 				checkPause()
 			}
@@ -416,6 +477,7 @@ func (s *DiscoveryService) DeepSweepJob(ctx context.Context, jobID string, keywo
 			found          = totalGambling
 			perDepth       = append(perDepth, depthStats)
 			currentURLs    = s.extractFollowURLs(bulk, globalSeen, blacklist)
+			logf("phase", "Level %d selesai: %d dianalisis, %d judol · %d kandidat level berikutnya", depth, bulk.Processed, bulk.GamblingFound, len(currentURLs))
 		}
 	} else {
 		perDepth = append(perDepth, depth0Stats)
@@ -423,6 +485,8 @@ func (s *DiscoveryService) DeepSweepJob(ctx context.Context, jobID string, keywo
 
 	depthReached := 0
 	if len(perDepth) > 0 { depthReached = perDepth[len(perDepth)-1].Depth }
+	phase("Selesai", depthReached)
+	logf("phase", "Selesai dalam %s — %d situs dianalisis, %d judol, %d dilewati", time.Since(start).Round(time.Second), totalAnalyzed, totalGambling, totalSkipped)
 
 	return &DeepSweepResult{
 		Keywords: keywords, DepthReached: depthReached,
@@ -773,6 +837,11 @@ func gamblingURLs(bulk *BulkResult) []string {
 // Cache 24 jam: kalau keyword sudah pernah di-search hari ini, hasil diambil dari DB.
 // Ini memungkinkan resume sweep tanpa hit Serper API lagi setelah restart.
 func (s *DiscoveryService) collectDomains(ctx context.Context, keywords []string) map[string]bool {
+	return s.collectDomainsWithProgress(ctx, keywords, nil)
+}
+
+// collectDomainsWithProgress sama dengan collectDomains, dengan callback per keyword (untuk log job).
+func (s *DiscoveryService) collectDomainsWithProgress(ctx context.Context, keywords []string, onKeyword func(keyword string, n int, cached bool, err error)) map[string]bool {
 	var mu sync.Mutex
 	allDomains := make(map[string]bool)
 
@@ -790,6 +859,9 @@ func (s *DiscoveryService) collectDomains(ctx context.Context, keywords []string
 			if s.PG != nil {
 				if cached := s.PG.GetDiscoveryCache(ctx, "serper", keyword); len(cached) > 0 {
 					log.Printf("💾 [Cache] Serper hit: '%s' → %d URL (dari cache)", keyword, len(cached))
+					if onKeyword != nil {
+						onKeyword(keyword, len(cached), true, nil)
+					}
 					mu.Lock()
 					for _, u := range cached {
 						allDomains[u] = true
@@ -810,6 +882,9 @@ func (s *DiscoveryService) collectDomains(ctx context.Context, keywords []string
 			urls, err := s.Scraper.SearchPages(keyword, pages)
 			if err != nil {
 				log.Printf("❌ [Serper] Error untuk keyword '%s': %v", keyword, err)
+				if onKeyword != nil {
+					onKeyword(keyword, 0, false, err)
+				}
 				return
 			}
 
@@ -820,6 +895,9 @@ func (s *DiscoveryService) collectDomains(ctx context.Context, keywords []string
 				}
 			}
 
+			if onKeyword != nil {
+				onKeyword(keyword, len(urls), false, nil)
+			}
 			mu.Lock()
 			for _, u := range urls {
 				allDomains[u] = true
@@ -871,4 +949,12 @@ func (s *DiscoveryService) filterNewDomains(ctx context.Context, urls []string) 
 		}
 	}
 	return newURLs
+}
+
+// shortErr memotong pesan galat agar satu baris log tetap ringkas.
+func shortErr(e string) string {
+	if len(e) > 90 {
+		return e[:90] + "…"
+	}
+	return e
 }

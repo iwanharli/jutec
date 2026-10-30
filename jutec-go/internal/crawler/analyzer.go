@@ -20,6 +20,7 @@ type AnalysisResult struct {
 	RedirectChain  []string              `json:"redirect_chain,omitempty"`
 	AppPromo       *AppPromo             `json:"app_promo,omitempty"`
 	MobileCrawled  bool                  `json:"mobile_crawled"` // profil HP Android ikut di-crawl
+	ISPBlocked     bool                  `json:"isp_blocked,omitempty"` // DNS ISP membelokkan ke halaman blokir; dibuka lewat IP asli (DoH)
 	Fingerprints   []InfraFingerprint         `json:"fingerprints,omitempty"`   // sidik jari CDN/favicon/API
 	InternalPages  []string              `json:"internal_pages,omitempty"` // halaman internal yang ikut dianalisis
 	AuthSurface    *AuthSurface          `json:"auth_surface,omitempty"`   // peta login & pendaftaran

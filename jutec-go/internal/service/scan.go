@@ -15,6 +15,7 @@ import (
 	"jutec-go/internal/crawler"
 	"jutec-go/internal/infra"
 	"jutec-go/internal/intelligence"
+	"jutec-go/internal/netutil"
 	"jutec-go/internal/store"
 	"jutec-go/internal/whois"
 
@@ -152,6 +153,11 @@ func (s *ScanService) analyzeURLInternal(ctx context.Context, url string, depth 
 	// 5. Postgres — simpan semua situs (gambling maupun tidak) sebagai audit log
 	progress("saving", "Menyimpan hasil ke database...", nil)
 	pgSaved, siteID := s.persistToPostgres(ctx, url, analysis, score, "active")
+
+	// Diblokir DNS ISP tetapi berhasil dibuka lewat IP asli → catat sebagai "diblokir, masih hidup"
+	if siteID > 0 && analysis.ISPBlocked && s.PG != nil {
+		s.PG.SaveReach(ctx, siteID, netutil.Reach{Status: "blocked_alive", HTTPStatus: 200, ISPBlocked: true})
+	}
 
 	// Simpan WHOIS data
 	if siteID > 0 && domainIntel != nil && s.PG != nil {
@@ -325,7 +331,7 @@ func (s *ScanService) AnalyzeBulk(ctx context.Context, urls []string, depth int)
 	start := time.Now()
 
 	resultsChan := make(chan *ScanResult, len(urls))
-	semaphore := make(chan struct{}, 10)
+	semaphore := make(chan struct{}, bulkConcurrency)
 	var wg sync.WaitGroup
 
 	for _, u := range urls {
@@ -368,11 +374,15 @@ func (s *ScanService) AnalyzeBulk(ctx context.Context, urls []string, depth int)
 
 // AnalyzeBulkJob seperti AnalyzeBulk tapi memanggil tickFn setelah setiap URL selesai.
 // tickFn bisa dipakai untuk CheckPause() atau update progress counter.
-func (s *ScanService) AnalyzeBulkJob(ctx context.Context, urls []string, depth int, tickFn func()) *BulkResult {
+// bulkConcurrency: jumlah situs yang dianalisis bersamaan pada scan massal / Deep Sweep.
+// Tiap analisis = satu Chrome headless (±130 MB profil + ratusan MB RAM); 10 terlalu berat untuk satu laptop.
+const bulkConcurrency = 4
+
+func (s *ScanService) AnalyzeBulkJob(ctx context.Context, urls []string, depth int, tickFn func(res *ScanResult)) *BulkResult {
 	start := time.Now()
 
 	resultsChan := make(chan *ScanResult, len(urls))
-	semaphore := make(chan struct{}, 10)
+	semaphore := make(chan struct{}, bulkConcurrency)
 	var wg sync.WaitGroup
 
 	for _, u := range urls {
@@ -388,7 +398,7 @@ func (s *ScanService) AnalyzeBulkJob(ctx context.Context, urls []string, depth i
 			res, _ := s.AnalyzeURL(scanCtx, targetURL, depth)
 			resultsChan <- res
 			if tickFn != nil {
-				tickFn()
+				tickFn(res)
 			}
 		}(u)
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"jutec-go/internal/browser"
 	"context"
 	"log"
 
@@ -58,6 +59,9 @@ func main() {
 	} else {
 		log.Println("Postgres not configured, skipping connection")
 	}
+
+	// Sisa Chrome headless & folder profil dari proses sebelumnya (restart/crash) — cegah disk penuh
+	browser.CleanupStale()
 
 	// Background worker (Redis-backed)
 	var taskClient *asynq.Client

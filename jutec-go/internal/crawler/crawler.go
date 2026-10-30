@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"jutec-go/internal/browser"
 	"context"
 	"regexp"
 	"sync"
@@ -10,6 +11,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"jutec-go/internal/netutil"
 
 	cdpnetwork "github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/emulation"
@@ -23,12 +26,11 @@ type Crawler struct {
 }
 
 func NewCrawler() *Crawler {
-	// HTTP client khusus untuk redirect chain — tidak auto-follow redirect
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse // stop di setiap redirect, kita handle manual
-		},
+	// HTTP client khusus untuk redirect chain — tidak auto-follow redirect.
+	// Tersambung lewat IP dari DoH: DNS ISP membelokkan situs yang diblokir ke halaman Internet Positif.
+	client := netutil.HTTPClient(10 * time.Second)
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse // stop di setiap redirect, kita handle manual
 	}
 	return &Crawler{
 		Analyzer:   NewAnalyzer(),
@@ -56,6 +58,10 @@ func (c *Crawler) process(url string, dbKeywords []WeightedKeyword, depth int, m
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
+	// Situs yang diblokir Komdigi: DNS ISP (bahkan permintaan ke 1.1.1.1 dibajak) mengarah ke server
+	// Internet Positif yang tak merespons HTTPS → crawl menggantung sampai timeout. Arahkan Chrome ke IP asli dari DoH.
+	resolverRules, ispBlocked := dohResolverRules(ctx, url)
+
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", true),
 		chromedp.Flag("disable-gpu", true),
@@ -65,8 +71,11 @@ func (c *Crawler) process(url string, dbKeywords []WeightedKeyword, depth int, m
 		chromedp.Flag("disable-features", "IsolateOrigins,site-per-process"),
 		chromedp.UserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
 	)
+	if resolverRules != "" {
+		opts = append(opts, chromedp.Flag("host-resolver-rules", resolverRules))
+	}
 
-	allocCtx, allocCancel := chromedp.NewExecAllocator(ctx, opts...)
+	allocCtx, allocCancel := browser.NewAllocator(ctx, opts...)
 	defer allocCancel()
 
 	taskCtx, taskCancel := chromedp.NewContext(allocCtx, chromedp.WithErrorf(func(s string, args ...interface{}) {
@@ -105,6 +114,9 @@ func (c *Crawler) process(url string, dbKeywords []WeightedKeyword, depth int, m
 		chromedp.OuterHTML("html", &htmlContent),
 	)
 	if err != nil {
+		if ispBlocked {
+			return nil, fmt.Errorf("diblokir ISP (Internet Positif) dan tidak terjangkau lewat IP asli: %w", err)
+		}
 		return nil, err
 	}
 
@@ -125,6 +137,7 @@ func (c *Crawler) process(url string, dbKeywords []WeightedKeyword, depth int, m
 	// 3. Analisis konten
 	networkSignals := capture.analyze()
 	result := c.Analyzer.Analyze(htmlContent, dbKeywords, networkSignals)
+	result.ISPBlocked = ispBlocked
 	result.Links = ExtractLinks(htmlContent, finalURL)
 
 	// Resolve shortener app links inline (timeout pendek per link)
@@ -502,4 +515,27 @@ func (c *Crawler) probeLobbyProviders(parent context.Context, result *AnalysisRe
 	}
 	result.NetworkSignals.TotalRequests += lobby.analyze().TotalRequests
 	log.Printf("  🎰 [Lobby] %s → provider: %v", target, result.NetworkSignals.GameProviders)
+}
+
+// dohResolverRules: bila DNS sistem membelokkan domain ke halaman blokir ISP, kembalikan aturan
+// --host-resolver-rules Chrome yang memetakan domain (dan varian www) ke IP asli dari DNS-over-HTTPS.
+// Domain yang tidak diblokir tidak diubah agar perilaku crawl normal tetap sama.
+func dohResolverRules(ctx context.Context, rawURL string) (rules string, blocked bool) {
+	u, err := neturl.Parse(rawURL)
+	if err != nil || u.Hostname() == "" {
+		return "", false
+	}
+	host := strings.ToLower(u.Hostname())
+	if !netutil.ISPBlocked(host) {
+		return "", false
+	}
+	dctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	ips, _, err := netutil.LookupDoH(dctx, host)
+	if err != nil || len(ips) == 0 {
+		return "", true
+	}
+	bare := strings.TrimPrefix(host, "www.")
+	log.Printf("  🛡️  [Crawler] %s diblokir DNS ISP → dibuka lewat IP asli %s (DoH)", host, ips[0])
+	return fmt.Sprintf("MAP %s %s, MAP www.%s %s", bare, ips[0], bare, ips[0]), true
 }
