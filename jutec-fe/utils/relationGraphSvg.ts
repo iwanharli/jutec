@@ -50,10 +50,15 @@ export function buildRelationSvg(rel: any, kindMeta: Record<string, { label: str
   const labeled = new Set([...siteNodes.values()]
     .sort((a, b) => b.deg - a.deg || Number(b.site.is_gambling) - Number(a.site.is_gambling)).slice(0, maxLabels).map(n => n.id))
 
-  const pad = 30, labelRoom = 190
+  // Ruang label dihitung dari label terpanjang; lebar minimum 680 agar grafik kecil tidak diperbesar (teks ikut membesar)
+  const pad = 30
+  const labelRoom = 30 + Math.min(32, Math.max(...nodes.filter(n => n.type !== 'site' || labeled.has(n.id)).map(n => cut(n.label, 30).length))) * 8.5
   const xs = nodes.map(n => n.x), ys = nodes.map(n => n.y)
-  const x0 = Math.min(...xs) - pad, x1 = Math.max(...xs) + labelRoom, y0 = Math.min(...ys) - pad, y1 = Math.max(...ys) + pad
-  const legendH = 28 + Math.ceil((usedKinds.size + 3) / 5) * 18
+  let x0 = Math.min(...xs) - pad, x1 = Math.max(...xs) + labelRoom
+  const y0 = Math.min(...ys) - pad, y1 = Math.max(...ys) + pad
+  const MIN_W = 680
+  if (x1 - x0 < MIN_W) { const extra = (MIN_W - (x1 - x0)) / 2; x0 -= extra; x1 += extra }
+  const legendH = 28 + Math.ceil((usedKinds.size + 3) / 4) * 18
   const W = x1 - x0, H = y1 - y0 + legendH
 
   const out: string[] = []
@@ -76,9 +81,9 @@ export function buildRelationSvg(rel: any, kindMeta: Record<string, { label: str
     ...[...usedKinds].map(k => ({ color: kindMeta[k]?.color ?? '#94a3b8', label: kindMeta[k]?.label ?? k })),
     { color: '#f43f5e', label: 'Situs judol (High)' }, { color: '#f59e0b', label: 'Situs judol (Medium)' }, { color: '#64748b', label: 'Situs normal' },
   ]
-  const ly = y1 + 14, colW = W / 5
+  const ly = y1 + 14, colW = Math.min(170, (W - 32) / 4)
   items.forEach((it, i) => {
-    const x = x0 + 16 + (i % 5) * colW, y = ly + Math.floor(i / 5) * 18
+    const x = x0 + 16 + (i % 4) * colW, y = ly + Math.floor(i / 4) * 18
     out.push(`<circle cx="${x}" cy="${y}" r="5" fill="${it.color}"/><text x="${x + 10}" y="${y + 4}" font-size="11" fill="${th.legend}">${esc(it.label)}</text>`)
   })
   out.push('</svg>')

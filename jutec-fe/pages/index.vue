@@ -40,7 +40,8 @@
               <span class="ml-auto text-slate-500 shrink-0">{{ it.sub }}</span>
             </li>
           </ul>
-          <p v-else class="mt-3 text-[13px] text-slate-600 flex-1">Tidak ada — aman.</p>
+          <EmptyState v-else compact class="mt-3 flex-1" :tone="noData ? 'neutral' : 'good'"
+            :icon="noData ? 'i-lucide-hourglass' : 'i-lucide-check'" :title="noData ? 'Menunggu data' : a.emptyTitle" />
           <UButton v-if="a.more && a.count" :to="a.more" size="2xs" color="gray" variant="ghost" class="mt-2 self-start"
             :label="a.count > a.items.length ? `Lihat semua (${a.count})` : 'Buka'" trailing-icon="i-lucide-arrow-right" />
         </div>
@@ -68,8 +69,10 @@
           <h2 class="section-title">Situs Baru vs Diblokir vs Mati</h2>
           <p class="section-desc">30 hari terakhir — apakah ancaman bertambah dan penindakan berdampak?</p>
         </template>
-        <TrendChart v-if="ov?.trend?.length" :data="ov.trend" :series="trendSeries" />
-        <div v-else class="empty-state !py-16"><p>Belum ada data tren.</p></div>
+        <TrendChart v-if="hasTrend" :data="ov.trend" :series="trendSeries" />
+        <EmptyState v-else icon="i-lucide-chart-line" title="Belum ada pergerakan dalam 30 hari"
+          desc="Grafik terisi setelah situs judol ditemukan, diblokir, atau mati. Jalankan Deep Sweep untuk mulai mengumpulkan data."
+          :action="{ label: 'Mulai Deep Sweep', to: '/discovery?mode=crawler', icon: 'i-lucide-satellite-dish' }" />
       </UCard>
 
       <UCard class="xl:col-span-4">
@@ -91,7 +94,8 @@
             </li>
           </ul>
         </div>
-        <div v-else class="empty-state !py-10"><p>Belum ada situs judol.</p></div>
+        <EmptyState v-else icon="i-lucide-pie-chart" title="Belum ada situs judol"
+          desc="Komposisi online, lolos blokir & tidak aktif muncul setelah situs pertama terdeteksi." />
       </UCard>
     </div>
 
@@ -105,7 +109,7 @@
             <NuxtLink v-if="r.more" :to="r.more" class="text-[12px] text-slate-500 hover:text-primary-300">Semua →</NuxtLink>
           </div>
         </template>
-        <p v-if="!r.rows.length" class="text-[13px] text-slate-600 py-3">Belum ada data.</p>
+        <EmptyState v-if="!r.rows.length" compact :icon="r.icon" title="Belum ada data" :desc="r.empty" class="my-1" />
         <ol v-else class="divide-y divide-slate-800/60 -my-1">
           <li v-for="(x, i) in r.rows" :key="i" class="py-2 flex items-center gap-2.5 min-w-0">
             <span class="text-[12px] text-slate-600 tabular-nums w-3">{{ i + 1 }}</span>
@@ -138,7 +142,9 @@
         </template>
 
         <p class="text-[12px] uppercase tracking-wider text-slate-500 mb-2">Antrean tugas</p>
-        <p v-if="!sys.queues?.length" class="text-[13px] text-slate-500">{{ sys.redis ? 'Belum ada antrean.' : 'Worker background nonaktif — scan otomatis & pengayaan tidak berjalan.' }}</p>
+        <EmptyState v-if="!sys.queues?.length" compact :tone="sys.redis ? 'good' : 'neutral'"
+          :icon="sys.redis ? 'i-lucide-check' : 'i-lucide-unplug'" :title="sys.redis ? 'Antrean kosong' : 'Worker nonaktif'"
+          :desc="sys.redis ? 'Tidak ada tugas yang menunggu.' : 'Redis tidak terhubung — scan otomatis & pengayaan tidak berjalan.'" />
         <table v-else class="w-full text-[13px] tabular-nums">
           <thead class="text-[11px] text-slate-500 uppercase"><tr><th class="text-left font-medium pb-1">Antrean</th><th class="text-right font-medium">Antre</th><th class="text-right font-medium">Jalan</th><th class="text-right font-medium">Selesai*</th><th class="text-right font-medium">Gagal*</th></tr></thead>
           <tbody>
@@ -209,24 +215,24 @@ const actions = computed(() => {
     { key: 'unverified', title: 'Belum diverifikasi', icon: 'i-lucide-badge-help', count: a.unverified?.count ?? 0,
       desc: 'Prioritas High yang masih beroperasi, belum dikonfirmasi analis',
       ring: 'ring-amber-500/40', box: 'bg-amber-500/10 ring-amber-500/25', text: 'text-amber-400',
-      items: siteItems(a.unverified, x => `${Math.round(x.confidence * 100)}%`), more: '/verifikasi' },
+      items: siteItems(a.unverified, x => `${Math.round(x.confidence * 100)}%`), more: '/verifikasi', emptyTitle: 'Semua sudah diverifikasi' },
     { key: 'revived', title: 'Hidup lagi', icon: 'i-lucide-rotate-ccw', count: a.revived?.count ?? 0,
       desc: 'Situs mati yang aktif kembali ≤30 hari — operator memakai ulang domain',
       ring: 'ring-rose-500/40', box: 'bg-rose-500/10 ring-rose-500/25', text: 'text-rose-400',
-      items: siteItems(a.revived, x => day(x.at)), more: '' },
+      items: siteItems(a.revived, x => day(x.at)), more: '', emptyTitle: 'Tidak ada yang hidup lagi' },
     { key: 'reappeared', title: 'Rekening muncul lagi', icon: 'i-lucide-repeat', count: a.reappeared?.length ?? 0,
       desc: 'Rekening/kontak situs mati kini dipakai situs baru',
       ring: 'ring-rose-500/40', box: 'bg-rose-500/10 ring-rose-500/25', text: 'text-rose-400',
       items: (a.reappeared ?? []).map((x: any) => ({ key: x.value, label: x.value, sub: x.name || x.type,
-        to: `/reverse-lookup?type=${encodeURIComponent(x.type)}&v=${encodeURIComponent(x.value)}` })), more: '/repository?tab=artifacts' },
+        to: `/reverse-lookup?type=${encodeURIComponent(x.type)}&v=${encodeURIComponent(x.value)}` })), more: '/repository?tab=artifacts', emptyTitle: 'Tidak ada yang berulang' },
     { key: 'blocked_alive', title: 'Lolos blokir', icon: 'i-lucide-shield-off', count: a.blocked_alive?.count ?? 0,
       desc: 'Diblokir ISP tapi server masih melayani pemain lewat VPN/DNS lain',
       ring: 'ring-orange-500/40', box: 'bg-orange-500/10 ring-orange-500/25', text: 'text-orange-400',
-      items: siteItems(a.blocked_alive, x => x.at ? `sejak ${day(x.at)}` : ''), more: '/repository?tab=sites' },
+      items: siteItems(a.blocked_alive, x => x.at ? `sejak ${day(x.at)}` : ''), more: '/repository?tab=sites', emptyTitle: 'Tidak ada yang lolos' },
     { key: 'no_evidence', title: 'Bukti belum diambil', icon: 'i-lucide-camera-off', count: a.no_evidence?.count ?? 0,
       desc: 'High beroperasi tanpa rekaman bukti forensik',
       ring: 'ring-sky-500/40', box: 'bg-sky-500/10 ring-sky-500/25', text: 'text-sky-400',
-      items: siteItems(a.no_evidence, x => `${Math.round(x.confidence * 100)}%`), more: '' },
+      items: siteItems(a.no_evidence, x => `${Math.round(x.confidence * 100)}%`), more: '', emptyTitle: 'Semua sudah ada bukti' },
   ]
 })
 
@@ -239,19 +245,22 @@ const lifeRows = computed(() => {
     { key: 'inactive', label: 'Tidak aktif', hint: 'mati / domain hilang', n: l.inactive ?? 0, bar: 'bg-slate-600' },
   ]
 })
+// Database masih kosong → kartu "aman" menyesatkan; tampilkan "menunggu data" sampai situs pertama tercatat
+const noData = computed(() => !!ov.value && !k.value.total)
+const hasTrend = computed(() => (ov.value?.trend ?? []).some((d: any) => d.new || d.died || d.blocked))
 const lifeTotal = computed(() => lifeRows.value.reduce((s, r) => s + r.n, 0))
 
 const ranks = computed(() => {
   const o = ov.value ?? {}
   return [
-    { key: 'ops', title: 'Operator Teraktif', icon: 'i-lucide-network', more: '/repository?tab=operators',
+    { key: 'ops', title: 'Operator Teraktif', icon: 'i-lucide-network', more: '/repository?tab=operators', empty: 'Klaster terbentuk saat ≥2 situs berbagi atribut kuat',
       rows: (o.top_operators ?? []).map((x: any) => ({ label: x.label, sub: x.sub, active: x.active_sites, total: x.total_sites, mono: true })) },
-    { key: 'money', title: 'Rekening Terbanyak', icon: 'i-lucide-landmark', more: '/repository?tab=artifacts',
+    { key: 'money', title: 'Rekening Terbanyak', icon: 'i-lucide-landmark', more: '/repository?tab=artifacts', empty: 'Rekening & e-wallet dari situs yang masih beroperasi',
       rows: (o.top_money ?? []).map((x: any) => ({ label: x.value, sub: [x.name, x.type].filter(Boolean).join(' · '), active: x.active_sites, total: x.total_sites, mono: true,
         to: `/reverse-lookup?type=${encodeURIComponent(x.type)}&v=${encodeURIComponent(x.value)}` })) },
-    { key: 'prov', title: 'Provider Game', icon: 'i-lucide-gamepad-2', more: '',
+    { key: 'prov', title: 'Provider Game', icon: 'i-lucide-gamepad-2', more: '', empty: 'Terdeteksi dari panggilan API game saat crawl',
       rows: (o.top_providers ?? []).map((x: any) => ({ label: x.label, active: x.active_sites, total: x.total_sites })) },
-    { key: 'hosts', title: 'Hosting (non-CDN)', icon: 'i-lucide-server', more: '',
+    { key: 'hosts', title: 'Hosting (non-CDN)', icon: 'i-lucide-server', more: '', empty: 'IP server asli yang dipakai ≥2 situs aktif',
       rows: (o.top_hosts ?? []).map((x: any) => ({ label: x.label, sub: x.sub, active: x.active_sites, total: x.total_sites, mono: true, to: `/ip/${x.label}` })) },
   ]
 })

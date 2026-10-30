@@ -147,7 +147,8 @@ export function buildTimeline(d: {
 }): TimelineEvent[] {
   const ev: TimelineEvent[] = []
   const t = (x?: string) => (x ? new Date(x).getTime() : NaN)
-  const add = (at: number, e: Omit<TimelineEvent, 'at'>) => { if (!isNaN(at)) ev.push({ at, ...e, future: at > Date.now() }) }
+  // "akan datang" hanya untuk kejadian yang benar-benar di depan (mis. domain kedaluwarsa), bukan selisih jam detik-an
+  const add = (at: number, e: Omit<TimelineEvent, 'at'>) => { if (!isNaN(at)) ev.push({ at, ...e, future: at > Date.now() + 3_600_000 }) }
   const s = d.site ?? {}, w = d.whois
 
   if (w?.registered_at) add(t(w.registered_at), { kind: 'domain', tone: 'violet', title: 'Domain didaftarkan', detail: [w.registrar, w.is_private && 'WHOIS privat'].filter(Boolean).join(' · ') })
@@ -204,7 +205,8 @@ export function buildTimeline(d: {
   if (s.verified_at) add(t(s.verified_at), { kind: 'aktivitas', tone: s.verified_status === 'judol' ? 'rose' : 'emerald',
     title: `Diverifikasi manual: ${s.verified_status === 'judol' ? 'JUDOL' : 'bukan judol'}`, detail: [s.verified_by, s.verified_note].filter(Boolean).join(' · ') })
   for (const a of d.audit) {
-    if (a.status >= 400) continue
+    // Hanya tindakan yang mengubah sesuatu; pembacaan data (GET) bukan kejadian investigasi
+    if (a.status >= 400 || /^(GET|HEAD|OPTIONS)\b/.test(a.action)) continue
     add(t(a.at), { kind: 'aktivitas', tone: 'gray', title: a.action, detail: a.actor === 'anonymous' ? 'Tanpa nama' : a.actor })
   }
   return ev.sort((a, b) => b.at - a.at)

@@ -228,7 +228,11 @@ export function buildSiteReportHtml(d: SiteReportData) {
 
   // ── Bukti forensik
   const done = d.evidence.filter(ev => ev.status === 'done')
-  sec('Bukti Forensik', done.map(ev => `<div class="box ev">
+  const failed = d.evidence.filter(ev => ev.status === 'error')
+  const evNote = !done.length && failed.length
+    ? `<div class="warn">Bukti forensik belum berhasil diambil — ${failed.length} percobaan gagal (terakhir ${esc(fmt(failed[0].created_at))}: <span class="mono">${esc(failed[0].error)}</span>). Situs kemungkinan lambat atau memblokir browser otomatis; ambil ulang dari halaman detail atau rekam manual.</div>`
+    : failed.length ? `<p class="muted">${failed.length} percobaan pengambilan bukti lain gagal dan tidak disertakan.</p>` : ''
+  sec('Bukti Forensik', evNote + done.map(ev => `<div class="box ev">
     <img src="${esc(d.evidenceShot(ev))}" alt="" onerror="this.remove()">
     <div>${kv([['Bukti', `#${esc(ev.id)}`], ['Diambil', esc(fmt(ev.captured_at || ev.created_at))], ['Oleh', esc(ev.requested_by)],
       ['HTTP', esc(ev.http_status)], ['IP server', mono(ev.server_ip)], ['URL akhir', mono(ev.final_url)],

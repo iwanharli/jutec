@@ -1941,8 +1941,8 @@ function exportReport() {
   toast.add({ title: 'Laporan diekspor', description: a.download, icon: 'i-lucide-file-down', color: 'emerald' })
 }
 // Ekspor PDF: laporan A4 lengkap lewat dialog cetak browser ("Simpan sebagai PDF")
-async function exportPdf() {
-  const html = buildSiteReportHtml({
+function reportHtml() {
+  return buildSiteReportHtml({
     host: host.value, site: site.value, whois: detail.value?.whois, enrichment: detail.value?.enrichment,
     kindMeta, facts: facts.value, pending: collecting.value.map(c => c.text.replace(/…$/, '')),
     attributes: detail.value?.attributes ?? [], keyLinks: keyLinks.value, auth: auth.value, payments: payments.value,
@@ -1954,6 +1954,9 @@ async function exportPdf() {
     graphSvg: buildRelationSvg(relations.value, kindMeta, { theme: 'light', width: 680 }),
     score: scoreData.value, pivots: pivots.value, timeline: timeline.value, confidenceOf,
   })
+}
+async function exportPdf() {
+  const html = reportHtml()
   try {
     await printSiteReport(html)
     toast.add({ title: 'Laporan PDF siap', description: 'Pilih "Simpan sebagai PDF" di dialog cetak.', icon: 'i-lucide-file-text', color: 'emerald' })
@@ -1961,6 +1964,14 @@ async function exportPdf() {
     toast.add({ title: 'Gagal membuat PDF', description: e.message, color: 'rose', icon: 'i-lucide-circle-alert' })
   }
 }
+// Mode cetak langsung (/site/:id?export=pdf): setelah semua data terkumpul, halaman diganti dengan laporan A4.
+// Dipakai untuk tautan cetak & pembuatan PDF otomatis (mis. Chrome headless --print-to-pdf).
+const exportMode = route.query.export === 'pdf'
+watch(() => [collecting.value.length, !!detail.value, !!relations.value] as const, ([n, hasDetail, hasRel]) => {
+  if (!exportMode || n || !hasDetail || !hasRel) return
+  nextTick(() => { const html = reportHtml(); document.open(); document.write(html); document.close() })
+})
+
 function fmtDate(d?: string) { return d ? new Date(d).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) : '—' }
 
 // Atribut → tipe di halaman Reverse Lookup
