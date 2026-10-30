@@ -2040,7 +2040,9 @@ function reportHtml() {
     host: host.value, site: site.value, whois: detail.value?.whois, enrichment: detail.value?.enrichment,
     kindMeta, facts: facts.value, pending: collecting.value.map(c => c.text.replace(/…$/, '')),
     attributes: detail.value?.attributes ?? [], keyLinks: keyLinks.value, auth: auth.value, payments: payments.value,
-    identities: identities.value, tgAccounts: tgAccounts.value, clusters: clusters.value, related: relations.value?.related ?? [],
+    identities: identities.value, tgAccounts: tgAccounts.value, clusters: clusters.value, related: [...(relations.value?.related ?? [])]
+      .sort((a: any, b: any) => relLevel(b) - relLevel(a) || b.strength - a.strength)
+      .map((r: any) => ({ ...r, tier: relTier(relLevel(r)).label, shared: relShared(r.id).slice(0, 4).map((v: any) => `${kindMeta[v.kind]?.label ?? v.kind}: ${v.label && v.label !== '1' && v.kind !== 'link' ? v.label : v.value}`) })),
     apks: apks.value, changes: changes.value, wayback: wayback.value, scans: detail.value?.scans ?? [],
     reachHistory: reachHistory.value, reachLabels: REACH, evidence: evidence.value,
     evidenceShot: ev => evFileURL(ev, 'screenshot-desktop.png'), gameProviders: gameProviders.value, operator: operator.value ?? '',

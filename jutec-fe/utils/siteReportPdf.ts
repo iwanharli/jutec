@@ -80,6 +80,22 @@ export function buildSiteReportHtml(d: SiteReportData) {
   sec('Ringkasan Temuan', d.facts.length
     ? `<ul class="facts">${d.facts.map(f => `<li><b>${esc(f.title)}</b>${f.detail ? `<span>${esc(f.detail)}</span>` : ''}</li>`).join('')}</ul>` : '')
 
+  // ── Penyusupan (situs sah yang dibobol)
+  const inj = s.injection
+  if (inj?.detected) {
+    sec('Indikasi Penyusupan', [
+      kv([
+        ['Kesimpulan', '<b>Situs tampak sah, tetapi menyimpan konten judol yang disembunyikan dari pengunjung biasa.</b>'],
+        ['Cloaking', inj.cloaking ? `Ya — konten judol hanya disajikan ke ${inj.cloak_via === 'googlebot' ? 'Googlebot (mesin pencari)' : 'pengunjung yang datang dari Google'}` : 'Tidak terdeteksi'],
+        ['Dialihkan ke', inj.cloak_redirect ? mono(inj.cloak_redirect) : ''],
+        ['Kata kunci versi tersembunyi', (inj.cloak_keywords ?? []).map((k: string) => chip(k, 'rose')).join(' ')],
+        ['Link judol tersembunyi', inj.hidden_links ? `${inj.hidden_links} dari ${inj.judol_links} link judol ke domain lain disembunyikan (di luar layar, ukuran 0, atau tidak ditampilkan)` : ''],
+        ['Domain tujuan', (inj.hidden_hosts ?? []).map(mono).join(', ')],
+      ]),
+      inj.hidden_samples?.length ? `<h3>Contoh link tersembunyi</h3><ul class="plain">${inj.hidden_samples.map((x: string) => `<li>${mono(x)}</li>`).join('')}</ul>` : '',
+    ].join(''), 'Tindak lanjut: beri tahu pengelola situs / CSIRT instansi agar celah ditutup, dan telusuri domain tujuan sebagai situs judol')
+  }
+
   // ── Dasar skor
   const sc = d.score
   sec('Dasar Penilaian Skor', sc ? [
@@ -125,13 +141,13 @@ export function buildSiteReportHtml(d: SiteReportData) {
   const walletBody = d.wallets.map(w => {
     const p = w.profile
     if (!p) return `<div class="box"><b class="mono">${esc(w.address)}</b><div class="muted">${esc(w.error || 'tidak ada data')}</div></div>`
-    return `<div class="box"><div class="box-h"><b class="mono">${esc(w.address)}</b>${Object.keys(w.linked_sites ?? {}).length ? chip(`terhubung ${Object.keys(w.linked_sites).length} dompet situs lain`, 'rose') : ''}</div>
+    return `<div class="box"><div class="box-h"><b class="mono">${esc(w.address)}</b>${chip(p.network === 'ERC20' || /^0x/i.test(w.address) ? 'USDT-ERC20 · Ethereum' : 'USDT-TRC20 · TRON', 'amber')}${Object.keys(w.linked_sites ?? {}).length ? chip(`terhubung ${Object.keys(w.linked_sites).length} dompet situs lain`, 'rose') : ''}</div>
       ${p.transfers ? `<div class="mini">${[['Masuk', usd(p.total_in)], ['Keluar', usd(p.total_out)], ['Transfer', `${p.transfers}${p.complete ? '' : ' terbaru'}`],
         ['Aktif', `${day(p.first_at)} – ${day(p.last_at)}`]].map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div>
       <h3>Pengirim terbesar (dana masuk)</h3>${cpTable(w, p.top_senders) || '<p class="muted">—</p>'}
       <h3>Penerima terbesar (dana keluar)</h3>${cpTable(w, p.top_receivers) || '<p class="muted">—</p>'}` : '<p class="muted">Belum ada transfer USDT.</p>'}</div>`
   }).join('')
-  const finAll = finBody + (walletBody ? `<h3>Jejak dana USDT (TRC20) — sumber: TronGrid</h3>${walletBody}` : '')
+  const finAll = finBody + (walletBody ? `<h3>Jejak dana USDT — sumber: TronGrid (TRC20) & Etherscan (ERC20)</h3>${walletBody}` : '')
   sec('Keuangan', finAll, 'Rekening bank, e-wallet, QRIS & kripto yang tercantum di situs')
 
   // ── Kontak & identitas
@@ -185,9 +201,13 @@ export function buildSiteReportHtml(d: SiteReportData) {
         ['Aktif', `${day(p.firstSeen)} – ${day(p.lastSeen)}`], ['Baru 30 hari', String(p.recent)]].map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div>
       ${p.sharedArtifacts.length ? `<div class="muted" style="margin-top:6px">Rekening & kontak dipakai bergantian</div>${table(['Jenis', 'Nilai', 'Situs'], p.sharedArtifacts.slice(0, 15).map(a => [esc(a.name || a.type), mono(a.value), esc(a.sites)]), ['22%', '', '12%'])}` : ''}
       ${(op.evidence ?? []).length ? `<div class="muted" style="margin-top:6px">Bukti penghubung</div><ul class="plain">${op.evidence.map((ev: any) => `<li>${esc(ev.attr)} <span class="muted">· ${esc(ev.sites)} situs</span></li>`).join('')}</ul>` : ''}</div>` }).join('')}` : '',
-    d.related.length ? `<h3>Situs terkait (${d.related.length})</h3>${table(['#', 'Situs', 'Atribut sama', 'Status'],
-      d.related.map((r, i) => [String(i + 1), `${mono(strip(r.url))}<div class="muted">${esc((r.shared_kinds ?? []).map((k: string) => d.kindMeta[k]?.label ?? k).join(' · '))}</div>`,
-        `${chip(`${r.shared_count} sama`, r.strength >= 4 ? 'rose' : r.strength >= 2 ? 'amber' : 'gray')}`, r.is_gambling ? chip('Judol', 'rose') : chip('Normal', 'green')]), ['6%', '', '18%', '14%'])}` : '',
+    d.related.length ? `<h3>Situs terkait (${d.related.length})</h3>${table(['#', 'Situs', 'Kesamaan', 'Keterkaitan', 'Status'],
+      d.related.map((r, i) => [String(i + 1),
+        `${mono(strip(r.url))}${SITE_CATEGORY[r.category] ? `<div>${chip(SITE_CATEGORY[r.category].label, r.category === 'betting' ? 'rose' : 'gray')}</div>` : ''}`,
+        (r.shared ?? []).map((x: string) => `<div class="muted">${esc(x)}</div>`).join('') || esc((r.shared_kinds ?? []).map((k: string) => d.kindMeta[k]?.label ?? k).join(' · ')),
+        chip(r.tier ?? `${r.shared_count} sama`, r.tier === 'Kuat' ? 'rose' : r.tier === 'Sedang' ? 'amber' : 'gray'),
+        `${r.is_gambling ? chip(`Judol ${r.priority ?? ''}`.trim(), 'rose') : chip('Normal', 'green')}${r.verified === 'judol' ? `<div>${chip('terverifikasi', 'green')}</div>` : ''}${r.lifecycle === 'inactive' ? `<div class="muted">tidak aktif</div>` : ''}`]),
+      ['5%', '30%', '', '12%', '15%'])}<p class="muted">Kuat = berbagi operator/artefak/tracking · Sedang = SSL/aplikasi · Lemah = hanya link, IP atau nameserver.</p>` : '',
     by('link').length ? `<h3>Domain tertaut</h3><ul class="cols">${by('link').map(a => `<li>${mono(a.value)}</li>`).join('')}</ul>` : '',
   ].join('')
   const revBody = d.revAnalytics.filter(r => r.fetched_at).map(r => `<div class="box"><div class="box-h"><b class="mono">${esc(r.value)}</b>${chip(r.platform)}${chip(`${r.domains.length} domain`, 'blue')}${
@@ -317,7 +337,7 @@ footer.end { margin-top: 24px; padding-top: 8px; border-top: 1px solid #cbd5e1; 
   <div class="brand"><span>Jutec · Laporan Investigasi</span><span>${esc(reportId)}</span></div>
   <h1>${esc(d.host)}</h1>
   <div class="url mono">${esc(s.url)}</div>
-  <div class="chips">${chip(status.t, status.c)}${s.priority ? chip(`Prioritas ${s.priority}`) : ''}${s.reach_status ? chip(d.reachLabels[s.reach_status]?.label ?? s.reach_status) : ''}${s.category && s.category !== 'clean' && s.category !== 'unclear' ? chip(SITE_CATEGORY[s.category]?.label.toUpperCase() ?? '', s.category === 'betting' ? 'rose' : 'gray') : ''}${s.app_promo ? chip('Promosi APK') : ''}${s.lifecycle === 'inactive' ? chip('TIDAK AKTIF') : ''}${s.revived_at ? chip(`Hidup lagi ${fmtDay(s.revived_at)}`, 'rose') : ''}${s.verified_status ? chip(`Verifikasi: ${s.verified_status}`) : ''}</div>
+  <div class="chips">${chip(status.t, status.c)}${s.priority ? chip(`Prioritas ${s.priority}`) : ''}${s.reach_status ? chip(d.reachLabels[s.reach_status]?.label ?? s.reach_status) : ''}${s.category && s.category !== 'clean' && s.category !== 'unclear' ? chip(SITE_CATEGORY[s.category]?.label.toUpperCase() ?? '', s.category === 'betting' ? 'rose' : 'gray') : ''}${s.app_promo ? chip('Promosi APK') : ''}${s.lifecycle === 'inactive' ? chip('TIDAK AKTIF') : ''}${s.revived_at ? chip(`Hidup lagi ${fmtDay(s.revived_at)}`, 'rose') : ''}${s.verified_status ? chip(`Verifikasi: ${s.verified_status}`) : ''}${s.tp_listed ? chip(`Terdaftar TrustPositif${s.tp_listed_since ? ' sejak ' + fmtDay(s.tp_listed_since) : ''}`, 'green') : s.tp_checked_at && s.is_gambling ? chip('Belum di daftar blokir Komdigi', 'amber') : ''}${s.injection?.detected ? chip('SITUS DISUSUPI', 'violet') : ''}</div>
 </div>
 <div class="kpis">${kpis.map(([k, v]) => `<div class="kpi"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div>
 <div class="meta">
