@@ -1,8 +1,11 @@
 export interface DiscoveryLog {
   time: string
   text: string
-  type: 'INFO' | 'FOUND' | 'SKIP'
+  type: LogType
 }
+// PHASE = pergantian tahap (judul), WARN = galat yang tidak menghentikan proses
+export type LogType = 'INFO' | 'FOUND' | 'SKIP' | 'PHASE' | 'WARN'
+const fmtTime = (d: Date) => d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
 
 export const useDiscoveryState = () => {
   const loading = useState<boolean>('disc-loading', () => false)
@@ -11,9 +14,9 @@ export const useDiscoveryState = () => {
   const elapsed = useState<string>('disc-elapsed', () => '00:00')
   const startTime = useState<number | null>('disc-start-time', () => null)
   
-  const addLog = (text: string, type: 'INFO' | 'FOUND' | 'SKIP' = 'INFO') => {
+  const addLog = (text: string, type: LogType = 'INFO', at?: Date | string) => {
     logs.value.push({
-      time: new Date().toLocaleTimeString(),
+      time: fmtTime(at ? new Date(at) : new Date()),
       text,
       type
     })

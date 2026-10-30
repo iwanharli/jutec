@@ -221,21 +221,46 @@
               <div class="flex items-center gap-3">
                 <UIcon name="i-lucide-terminal" class="w-5 h-5 text-primary-400" />
                 <h2 class="section-title">Log Aktivitas</h2>
-                <UBadge :color="discoveryLoading ? 'primary' : 'gray'" variant="subtle">{{ discoveryLoading ? 'Berjalan' : 'Selesai' }}</UBadge>
+                <UBadge :color="statusBadge.color" variant="subtle">{{ statusBadge.label }}</UBadge>
               </div>
-              <div class="flex items-center gap-5">
+              <div class="flex items-center gap-4">
                 <span class="text-sm text-slate-400 tabular-nums"><UIcon name="i-lucide-timer" class="w-4 h-4 align-[-3px] mr-1" />{{ elapsed }}</span>
-                <span class="text-sm font-semibold text-emerald-400">{{ foundCount }} ditemukan</span>
-                <UButton label="Bersihkan" color="gray" variant="ghost" size="sm" icon="i-lucide-eraser" @click="resetState" />
+                <span class="text-sm text-slate-300 tabular-nums">{{ analyzedCount }} dianalisis</span>
+                <span class="text-sm font-semibold text-emerald-400 tabular-nums">{{ foundCount }} judol</span>
+                <template v-if="sweepJob && ['running', 'paused'].includes(sweepJob.status)">
+                  <UButton v-if="sweepJob.status === 'running'" size="sm" color="gray" variant="soft" icon="i-lucide-pause" label="Jeda" @click="sweepAction('pause')" />
+                  <UButton v-else size="sm" color="primary" variant="soft" icon="i-lucide-play" label="Lanjut" @click="sweepAction('resume')" />
+                  <UButton size="sm" color="rose" variant="ghost" icon="i-lucide-square" label="Batal" @click="sweepAction('cancel')" />
+                </template>
+                <UButton v-else label="Bersihkan" color="gray" variant="ghost" size="sm" icon="i-lucide-eraser" @click="resetState(); sweepJob = null" />
+              </div>
+            </div>
+            <!-- Tahap & progres (mode job Deep Sweep) -->
+            <div v-if="sweepJob" class="mt-3">
+              <div class="flex items-center justify-between text-[13px] mb-1.5">
+                <span class="text-slate-300"><UIcon v-if="sweepJob.status === 'running'" name="i-lucide-loader-circle" class="w-3.5 h-3.5 align-[-2px] mr-1 animate-spin text-primary-400" />{{ sweepLive?.phase || 'Menyiapkan…' }}</span>
+                <span v-if="sweepJob.total" class="text-slate-500 tabular-nums">{{ sweepJob.processed }} / {{ sweepJob.total }} situs tahap ini</span>
+              </div>
+              <div class="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                <div class="h-full rounded-full transition-all duration-500" :class="sweepJob.status === 'paused' ? 'bg-amber-500' : 'bg-primary-500'"
+                  :style="{ width: sweepJob.total ? `${Math.min(100, (sweepJob.processed / sweepJob.total) * 100)}%` : '4%' }" />
               </div>
             </div>
           </template>
           <div id="disc-terminal" class="bg-slate-950/70 h-[28rem] overflow-y-auto px-6 py-4 font-mono text-[13px] space-y-1.5">
-            <div v-for="(log, i) in logs" :key="i" class="flex items-start gap-4 leading-relaxed">
-              <span class="text-slate-600 tabular-nums shrink-0 w-20">{{ log.time }}</span>
-              <span :class="{ 'text-emerald-400': log.type === 'FOUND', 'text-slate-600': log.type === 'SKIP', 'text-slate-300': log.type === 'INFO' }">{{ log.text }}</span>
+            <div v-for="(log, i) in logs" :key="i" class="flex items-start gap-4 leading-relaxed"
+              :class="log.type === 'PHASE' && i > 0 && 'mt-3 pt-3 border-t border-slate-800/80'">
+              <span class="text-slate-600 tabular-nums shrink-0 w-16">{{ log.time }}</span>
+              <span class="min-w-0 break-words [overflow-wrap:anywhere]" :class="{
+                'text-primary-300 font-semibold': log.type === 'PHASE',
+                'text-emerald-400': log.type === 'FOUND',
+                'text-amber-400': log.type === 'WARN',
+                'text-slate-500': log.type === 'SKIP',
+                'text-slate-400': log.type === 'INFO' }">{{ log.text }}</span>
             </div>
-            <div v-if="discoveryLoading" class="text-primary-400 animate-pulse pl-24">▌</div>
+            <div v-if="discoveryLoading" class="flex items-center gap-2 text-primary-400 pl-20">
+              <span class="animate-pulse">▌</span><span v-if="sweepJob?.status === 'paused'" class="text-amber-400">dijeda</span>
+            </div>
           </div>
         </UCard>
 
@@ -334,10 +359,22 @@ async function startDiscovery() {
   try {
     if (activeMode.value === 'crawler') {
       if (!isAuto.value && !deepRoot.value) { discoveryLoading.value = false; stopTimer(); return }
-      addLog(isAuto.value ? 'Auto deep sweep (defaults)' : `Crawler: ${deepRoot.value}`)
-      const res = isAuto.value
-        ? await post<any>('/discovery/deep-sweep', { use_defaults: true, max_depth: deepDepth.value, max_urls: deepMaxUrls.value })
-        : await get<any>('/discovery/deep-sweep', { domain: deepRoot.value, depth: deepDepth.value, limit: deepMaxUrls.value })
+      if (isAuto.value) {
+        // Mode job: berjalan di server, log & progres diambil bertahap — tidak bergantung pada tab ini
+        let id: string
+        try {
+          id = (await post<any>('/sweep/start', { use_defaults: true, max_depth: deepDepth.value, max_urls: deepMaxUrls.value })).job_id
+        } catch (e: any) {
+          const active = (await get<any>('/sweep/active').catch(() => null))?.job
+          if (!active) throw e
+          addLog('Sudah ada Deep Sweep yang berjalan — menampilkan progresnya.', 'WARN')
+          id = active.id
+        }
+        await followSweep(id)
+        return
+      }
+      addLog(`Crawler: ${deepRoot.value}`, 'PHASE')
+      const res = await get<any>('/discovery/deep-sweep', { domain: deepRoot.value, depth: deepDepth.value, limit: deepMaxUrls.value })
       discoveryResult.value = res
       addLog(`Selesai — ${res.total_found ?? res.found_count ?? 0} target ditemukan`, 'FOUND')
     } else if (activeMode.value === 'google') {
@@ -357,6 +394,57 @@ async function startDiscovery() {
     addLog(`Error: ${e.message}`)
   } finally { discoveryLoading.value = false; stopTimer() }
 }
+
+// ── Deep Sweep sebagai job server ──
+const sweepJob  = ref<any>(null)
+const sweepLive = ref<any>(null)
+let sweepSince = 0
+let sweepPoll: any = null
+const LOG_TYPE: Record<string, any> = { phase: 'PHASE', found: 'FOUND', skip: 'SKIP', warn: 'WARN', info: 'INFO' }
+
+async function pollSweep(id: string) {
+  const d = await get<any>(`/sweep/${id}`, { since: sweepSince }).catch(() => null)
+  if (!d?.job) return
+  sweepJob.value = d.job
+  sweepLive.value = d.live
+  for (const e of d.events ?? []) { addLog(e.text, LOG_TYPE[e.kind] ?? 'INFO', e.at); sweepSince = e.seq }
+  if (!['running', 'paused'].includes(d.job.status)) {
+    clearInterval(sweepPoll); sweepPoll = null
+    discoveryLoading.value = false; stopTimer()
+    if (d.job.status === 'error') addLog(`Sweep gagal: ${d.job.error_msg}`, 'WARN')
+    if (d.job.status === 'cancelled') addLog('Sweep dibatalkan.', 'WARN')
+  }
+}
+async function followSweep(id: string, resume = false) {
+  clearInterval(sweepPoll)
+  sweepSince = 0
+  if (resume) { resetState(); }
+  discoveryLoading.value = true
+  await pollSweep(id)
+  if (sweepJob.value?.started_at) startTime.value = new Date(sweepJob.value.started_at).getTime()
+  startTimer()
+  if (['running', 'paused'].includes(sweepJob.value?.status)) sweepPoll = setInterval(() => pollSweep(id), 2000)
+}
+async function sweepAction(action: 'pause' | 'resume' | 'cancel') {
+  if (!sweepJob.value) return
+  if (action === 'cancel' && !confirm('Batalkan Deep Sweep? Situs yang sudah dianalisis tetap tersimpan.')) return
+  try { await post(`/sweep/${sweepJob.value.id}/${action}`, {}); await pollSweep(sweepJob.value.id) }
+  catch (e: any) { addLog(`Gagal ${action}: ${e.message}`, 'WARN') }
+}
+const analyzedCount = computed(() => logs.value.filter((l: any) => ['FOUND', 'INFO', 'SKIP'].includes(l.type) && /^[✓·✗]/.test(l.text)).length)
+const statusBadge = computed(() => {
+  const st = sweepJob.value?.status
+  if (st === 'paused') return { label: 'Dijeda', color: 'amber' }
+  if (st === 'cancelled') return { label: 'Dibatalkan', color: 'gray' }
+  if (st === 'error') return { label: 'Gagal', color: 'rose' }
+  return discoveryLoading.value ? { label: 'Berjalan', color: 'primary' } : { label: 'Selesai', color: 'emerald' }
+})
+// Buka halaman saat sweep masih berjalan di server → sambung lagi ke log-nya
+onMounted(async () => {
+  const active = (await get<any>('/sweep/active').catch(() => null))?.job
+  if (active && active.id !== sweepJob.value?.id) { activeMode.value = 'crawler'; isAuto.value = true; await followSweep(active.id, true) }
+})
+onUnmounted(() => clearInterval(sweepPoll))
 
 function stopDiscovery() { discoveryLoading.value = false; stopTimer(); addLog('Dihentikan oleh operator') }
 
