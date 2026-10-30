@@ -372,7 +372,8 @@ func (db *PostgresDB) GetSiteDetail(ctx context.Context, siteID int) (*SiteDetai
 	var scoreRaw, kwRaw, patRaw, artRaw, redRaw []byte
 	if db.Pool.QueryRow(ctx, `
 		SELECT created_at, result->'score', result->'result'->'found_keywords', result->'result'->'found_patterns',
-		       (SELECT jsonb_agg(a->>'value') FROM jsonb_array_elements(COALESCE(result->'result'->'artifacts', '[]')) a),
+		       (SELECT jsonb_agg(a->>'value') FROM jsonb_array_elements(
+		          CASE WHEN jsonb_typeof(result->'result'->'artifacts') = 'array' THEN result->'result'->'artifacts' ELSE '[]' END) a),
 		       result->'result'->'redirect_chain', COALESCE((result->'result'->>'mobile_crawled')::bool, false)
 		FROM scan_logs WHERE site_id = $1 AND NOT (result ? 'error') AND result ? 'score'
 		ORDER BY created_at DESC LIMIT 1`, siteID).Scan(&ex.ScannedAt, &scoreRaw, &kwRaw, &patRaw, &artRaw, &redRaw, &ex.MobileCrawled) == nil {

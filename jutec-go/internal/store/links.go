@@ -47,6 +47,8 @@ var noiseDomains = map[string]bool{
 	"casino.guru": true, "chipy.com": true, "askgamblers.com": true,
 	// Domain infra / legit yang sering muncul sebagai false positive
 	"recaptcha.net": true, "hcaptcha.com": true, "jsdelivr.net": true,
+	// Skrip/beacon pihak ketiga yang dipakai jutaan situs — bukan bukti keterkaitan operator
+	"cloudflareinsights.com": true, "w.org": true, "withgoogle.com": true,
 	"jquery.com": true, "fontawesome.com": true,
 	// Image CDN tanpa ekstensi (hash path)
 	"utdstc.com": true, "impactcdn.com": true, "s.ntv.io": true,
