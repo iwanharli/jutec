@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS site_links;
+DROP TABLE IF EXISTS links;

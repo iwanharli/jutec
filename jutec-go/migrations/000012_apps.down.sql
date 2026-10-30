@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS site_apps;
+DROP TABLE IF EXISTS apps;

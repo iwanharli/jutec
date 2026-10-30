@@ -1,0 +1,4 @@
+DROP TABLE IF EXISTS whois_records;
+ALTER TABLE sites DROP COLUMN IF EXISTS rescan_count;
+ALTER TABLE sites DROP COLUMN IF EXISTS offline_since;
+ALTER TABLE sites DROP COLUMN IF EXISTS next_scan_at;

@@ -1,0 +1,4 @@
+DROP TABLE IF EXISTS site_ssl;
+DROP TABLE IF EXISTS ssl_certs;
+DROP TABLE IF EXISTS site_ns;
+DROP TABLE IF EXISTS nameservers;

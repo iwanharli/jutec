@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS site_txt;
+DROP TABLE IF EXISTS txt_tokens;

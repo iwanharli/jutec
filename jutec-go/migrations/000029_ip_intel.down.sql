@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS site_origin;
+DROP TABLE IF EXISTS ip_intel;

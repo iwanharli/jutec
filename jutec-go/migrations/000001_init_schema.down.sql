@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS scan_logs;
+DROP TABLE IF EXISTS sites;

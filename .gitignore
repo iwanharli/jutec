@@ -1,0 +1,32 @@
+# ── Rahasia & konfigurasi lokal ──
+.env
+.env.*
+!.env.example
+
+# ── Data: backup DB, bukti forensik, snapshot (berisi data pribadi — JANGAN di-commit) ──
+backup-*
+snapshot-*
+*.dump
+*.sql.gz
+*.tar.gz
+/*.sql
+/*.csv
+evidence/
+
+# ── Build & dependensi ──
+node_modules/
+.nuxt/
+.output/
+.data/
+dist/
+jutec-go/main
+jutec-go/tmp/
+jutec-go/server
+*.exe
+
+# ── Editor / OS / lokal ──
+.DS_Store
+.claude/
+.vscode/
+.idea/
+*.log

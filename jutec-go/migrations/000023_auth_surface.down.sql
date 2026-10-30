@@ -1,0 +1,1 @@
+ALTER TABLE sites DROP COLUMN IF EXISTS auth_surface;

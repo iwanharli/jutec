@@ -1,0 +1,45 @@
+
+services:
+  # 1. Postgres - Source of Truth & Logs
+  postgres:
+    image: postgres:15-alpine
+    container_name: jutec_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: db_jutec
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # 2. Neo4j - Graph Intelligence
+  neo4j:
+    image: neo4j:5.12-community
+    container_name: jutec_neo4j
+    restart: always
+    ports:
+      - "7474:7474" # HTTP Console
+      - "7687:7687" # Bolt Protocol
+    environment:
+      NEO4J_AUTH: neo4j/password123
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+
+  # 3. Redis - Background Worker Queue (Asynq)
+  redis:
+    image: redis:7-alpine
+    container_name: jutec_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_data:
+  neo4j_data:
+  neo4j_logs:
+  redis_data:

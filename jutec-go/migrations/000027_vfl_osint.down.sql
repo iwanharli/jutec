@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS vfl_queries;
+ALTER TABLE leak_kominfo DROP COLUMN IF EXISTS source;
