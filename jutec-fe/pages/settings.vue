@@ -10,6 +10,8 @@
       </template>
     </PageHeader>
 
+    <MaintenancePanel />
+
     <div v-if="loading" class="grid grid-cols-1 2xl:grid-cols-2 gap-6">
       <USkeleton v-for="i in 2" :key="i" class="h-64 w-full rounded-2xl" />
     </div>

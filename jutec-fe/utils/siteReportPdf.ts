@@ -316,7 +316,7 @@ footer.end { margin-top: 24px; padding-top: 8px; border-top: 1px solid #cbd5e1; 
   <div class="brand"><span>Jutec · Laporan Investigasi</span><span>${esc(reportId)}</span></div>
   <h1>${esc(d.host)}</h1>
   <div class="url mono">${esc(s.url)}</div>
-  <div class="chips">${chip(status.t, status.c)}${s.priority ? chip(`Prioritas ${s.priority}`) : ''}${s.reach_status ? chip(d.reachLabels[s.reach_status]?.label ?? s.reach_status) : ''}${s.app_promo ? chip('Promosi APK') : ''}${s.lifecycle === 'inactive' ? chip('TIDAK AKTIF') : ''}${s.revived_at ? chip(`Hidup lagi ${fmtDay(s.revived_at)}`, 'rose') : ''}${s.verified_status ? chip(`Verifikasi: ${s.verified_status}`) : ''}</div>
+  <div class="chips">${chip(status.t, status.c)}${s.priority ? chip(`Prioritas ${s.priority}`) : ''}${s.reach_status ? chip(d.reachLabels[s.reach_status]?.label ?? s.reach_status) : ''}${s.role === 'operator' ? chip('SITUS UTAMA', 'rose') : s.role === 'landing' ? chip('LANDING PAGE') : ''}${s.app_promo ? chip('Promosi APK') : ''}${s.lifecycle === 'inactive' ? chip('TIDAK AKTIF') : ''}${s.revived_at ? chip(`Hidup lagi ${fmtDay(s.revived_at)}`, 'rose') : ''}${s.verified_status ? chip(`Verifikasi: ${s.verified_status}`) : ''}</div>
 </div>
 <div class="kpis">${kpis.map(([k, v]) => `<div class="kpi"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div>
 <div class="meta">

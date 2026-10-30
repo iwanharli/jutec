@@ -15,8 +15,23 @@
         <div class="flex items-center gap-2">
           <UIcon name="i-lucide-waypoints" class="w-5 h-5 text-primary-400" />
           <h1 class="text-sm font-semibold text-white flex-1">Network Graph</h1>
+          <UTooltip :text="liveTip">
+            <button type="button" class="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] font-medium ring-1 transition"
+              :class="liveState === 'live' ? 'text-emerald-300 ring-emerald-500/30 bg-emerald-500/10' : liveState === 'paused' ? 'text-amber-300 ring-amber-500/30 bg-amber-500/10' : 'text-slate-400 ring-slate-700'"
+              @click="liveOn = !liveOn">
+              <span class="w-1.5 h-1.5 rounded-full" :class="liveState === 'live' ? 'bg-emerald-400 animate-pulse' : liveState === 'paused' ? 'bg-amber-400' : 'bg-slate-500'" />
+              {{ liveState === 'live' ? 'Live' : liveState === 'paused' ? 'Dijeda' : 'Statis' }}
+            </button>
+          </UTooltip>
           <UTooltip text="Muat ulang"><UButton size="2xs" color="gray" variant="ghost" icon="i-lucide-refresh-cw" :loading="loading" @click="loadGraph" /></UTooltip>
         </div>
+        <!-- Node baru dari sweep yang sedang berjalan -->
+        <button v-if="freshCount" type="button" @click="focusFresh"
+          class="mt-2 w-full flex items-center gap-2 rounded-lg bg-emerald-500/10 ring-1 ring-emerald-500/30 px-2.5 py-1.5 text-left text-[12px] text-emerald-200 hover:bg-emerald-500/15">
+          <UIcon name="i-lucide-sparkles" class="w-3.5 h-3.5" />
+          <span class="flex-1">+{{ freshCount }} node baru{{ lastLiveAt ? ` · ${lastLiveAt}` : '' }}</span>
+          <span class="text-emerald-400">Tampilkan →</span>
+        </button>
         <p class="text-xs text-slate-400 mt-1 tabular-nums">
           <b class="text-slate-200">{{ view.nodes.length.toLocaleString('id-ID') }}</b> / {{ totals.nodes.toLocaleString('id-ID') }} node ·
           <b class="text-slate-200">{{ view.edges.length.toLocaleString('id-ID') }}</b> / {{ totals.edges.toLocaleString('id-ID') }} relasi
@@ -346,7 +361,7 @@ function render() {
   }
   gRoot.selectAll('*').remove()
 
-  const nodes = vn.map(n => ({ ...n, ...(pos.get(n.id) ?? { x: W / 2 + (Math.random() - 0.5) * 400, y: H / 2 + (Math.random() - 0.5) * 400 }) }))
+  const nodes = vn.map(n => ({ ...n, ...(pos.get(n.id) ?? nearNeighbor(n.id, ve) ?? { x: W / 2 + (Math.random() - 0.5) * 400, y: H / 2 + (Math.random() - 0.5) * 400 }) }))
   const edges = ve.map(e => ({ ...e }))
 
   const link = gRoot.append('g').attr('class', 'links').selectAll('line').data(edges).join('line')
@@ -394,6 +409,7 @@ function render() {
       for (const n of nodes) pos.set(n.id, { x: n.x, y: n.y })
       if (!fitted) { fitted = true; fit() }
     })
+  node.classed('fresh', (d: any) => freshIds.value.has(d.id))
   highlight(selected.value?.id ?? null)
 }
 
@@ -451,6 +467,57 @@ function fit() {
 }
 function zoomBy(s: number) { if (svgRef.value && zoom) d3.select(svgRef.value).transition().call(zoom.scaleBy, s) }
 
+// ── Live: graf diperbarui sendiri selama Deep Sweep berjalan ──
+const liveOn = ref(true)
+const sweepActive = ref(false)
+const freshIds = ref(new Set<string>())
+const lastLiveAt = ref('')
+const freshCount = computed(() => freshIds.value.size)
+const liveState = computed(() => (!liveOn.value ? 'paused' : sweepActive.value ? 'live' : 'static'))
+const liveTip = computed(() => ({
+  live: 'Diperbarui otomatis tiap 30 detik selama Deep Sweep berjalan — klik untuk menjeda',
+  paused: 'Pembaruan otomatis dijeda — klik untuk melanjutkan',
+  static: 'Tidak ada Deep Sweep berjalan — data tidak berubah. Pembaruan otomatis aktif lagi saat sweep dimulai.',
+} as Record<string, string>)[liveState.value])
+
+// Node baru diletakkan dekat tetangga yang sudah punya posisi, agar tata letak lama tidak teracak
+function nearNeighbor(id: string, edges: any[]) {
+  for (const e of edges) {
+    const other = e.source === id ? e.target : e.target === id ? e.source : null
+    const p = other != null ? pos.get(typeof other === 'object' ? other.id : other) : null
+    if (p) return { x: p.x + (Math.random() - 0.5) * 60, y: p.y + (Math.random() - 0.5) * 60 }
+  }
+  return null
+}
+
+async function liveRefresh() {
+  if (!liveOn.value || loading.value || document.hidden) return
+  const d = await get<any>('/network/graph').catch(() => null)
+  if (!d) return
+  const known = new Set(raw.value.nodes.map((n: any) => n.id))
+  const added = (d.nodes ?? []).filter((n: any) => !known.has(n.id)).map((n: any) => n.id)
+  if (!added.length && (d.edges ?? []).length === raw.value.edges.length) return
+  freshIds.value = new Set([...freshIds.value, ...added])
+  lastLiveAt.value = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+  raw.value = { nodes: d.nodes ?? [], edges: d.edges ?? [] } // posisi lama dipertahankan (pos tidak dikosongkan)
+}
+async function liveTick() {
+  sweepActive.value = !!(await get<any>('/sweep/active').catch(() => null))?.job
+  if (sweepActive.value) await liveRefresh()
+}
+// Arahkan kamera ke kumpulan node baru, lalu hapus sorotannya
+function focusFresh() {
+  const pts = [...freshIds.value].map(id => pos.get(id)).filter(Boolean) as { x: number; y: number }[]
+  const svgEl = svgRef.value
+  if (pts.length && svgEl && zoom) {
+    const cx = pts.reduce((a, p) => a + p.x, 0) / pts.length, cy = pts.reduce((a, p) => a + p.y, 0) / pts.length
+    d3.select(svgEl).transition().duration(600)
+      .call(zoom.transform, d3.zoomIdentity.translate(svgEl.clientWidth / 2, svgEl.clientHeight / 2).scale(1.4).translate(-cx, -cy))
+  }
+  setTimeout(() => { freshIds.value = new Set(); gRoot?.selectAll('g.nodes g').classed('fresh', false) }, 4000)
+}
+let liveTimer: any = null
+
 async function loadGraph() {
   loading.value = true
   try {
@@ -465,8 +532,8 @@ watch(view, () => { clearTimeout(rTimer); rTimer = setTimeout(render, 120) })
 watch(() => f.focusHops, () => setTimeout(() => fit(), 900))
 watch(isFullscreen, () => nextTick(() => setTimeout(() => { render(); fit() }, 150)))
 
-onMounted(loadGraph)
-onUnmounted(() => sim?.stop())
+onMounted(() => { loadGraph(); liveTick(); liveTimer = setInterval(liveTick, 30_000) })
+onUnmounted(() => { sim?.stop(); clearInterval(liveTimer) })
 useHead({ title: 'Network Graph — Jutec' })
 </script>
 
@@ -482,6 +549,10 @@ useHead({ title: 'Network Graph — Jutec' })
 :deep(.node) { transition: opacity .15s; }
 :deep(.node.dim) { opacity: .12; }
 :deep(.node.sel circle) { stroke: #fff; stroke-width: 2.5px; }
+/* Node baru dari pembaruan live */
+:deep(.node.fresh circle) { stroke: #34d399; stroke-width: 3px; animation: fresh-pulse 1.6s ease-in-out infinite; }
+:deep(.node.fresh .lbl) { opacity: 1; fill: #a7f3d0; }
+@keyframes fresh-pulse { 0%, 100% { stroke-opacity: 1; } 50% { stroke-opacity: .25; } }
 
 .panel-enter-active, .panel-leave-active { transition: all .18s ease; }
 .panel-enter-from, .panel-leave-to { opacity: 0; transform: translateX(12px); }

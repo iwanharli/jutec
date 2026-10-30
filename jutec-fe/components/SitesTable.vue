@@ -74,6 +74,8 @@
                 <span class="w-1.5 h-1.5 rounded-full" :class="statusMeta[row.status]?.dot" />{{ statusMeta[row.status]?.label ?? row.status }}
               </span>
               <span v-if="!gamblingOnly" :class="row.is_gambling ? 'text-rose-400' : 'text-slate-500'">· {{ row.is_gambling ? 'Judol' : 'Normal' }}</span>
+              <UBadge v-if="row.role === 'operator'" color="rose" variant="subtle" size="xs">situs utama</UBadge>
+              <UBadge v-else-if="row.role === 'landing'" color="sky" variant="subtle" size="xs">landing</UBadge>
               <UBadge v-if="row.lifecycle === 'inactive'" color="gray" variant="outline" size="xs">tidak aktif</UBadge>
               <UBadge v-else-if="row.lifecycle === 'uncertain'" color="amber" variant="outline" size="xs">belum pasti</UBadge>
             </div>

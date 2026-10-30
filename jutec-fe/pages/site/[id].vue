@@ -33,6 +33,8 @@
               <UTooltip v-if="reachMeta" :text="reachTip">
                 <UBadge :color="reachMeta.color" variant="subtle"><UIcon :name="reachMeta.icon" class="w-3.5 h-3.5 mr-1" />{{ reachMeta.label }}</UBadge>
               </UTooltip>
+              <UBadge v-if="site.role === 'operator'" color="rose" variant="solid"><UIcon name="i-lucide-castle" class="w-3.5 h-3.5 mr-1" />Situs utama</UBadge>
+              <UBadge v-else-if="site.role === 'landing'" color="sky" variant="subtle"><UIcon name="i-lucide-door-open" class="w-3.5 h-3.5 mr-1" />Landing page</UBadge>
               <UBadge v-if="site.app_promo" color="amber" variant="subtle"><UIcon name="i-lucide-smartphone" class="w-3.5 h-3.5 mr-1" />Promosi APK</UBadge>
               <UBadge v-if="site.status && site.status !== 'active'" color="amber" variant="subtle">{{ site.status }}</UBadge>
             </div>
@@ -354,6 +356,8 @@
           </div>
         </UCard>
       </div>
+
+      <SiteRoleCard v-if="tab === 'ringkasan' && detail.role_links" :role="site.role" :links="detail.role_links" />
 
       <!-- ── Dasar skor & pivot terkuat ── -->
       <div v-if="tab === 'ringkasan'" class="grid grid-cols-1 xl:grid-cols-2 gap-5 items-start">
@@ -1726,6 +1730,11 @@ const facts = computed(() => {
   if (w) f.push({ icon: 'i-lucide-calendar-clock', color: 'text-amber-400',
     title: `${w.domain_age_days >= 0 ? `Domain berumur ${w.domain_age_days} hari` : 'Umur domain tak diketahui'}${w.is_private ? ' · WHOIS disembunyikan' : ''}`,
     detail: [w.registrar, w.tld].filter(Boolean).join(' · ') })
+  const rl = detail.value?.role_links
+  if (s.role === 'landing' && rl?.targets?.length) f.push({ icon: 'i-lucide-door-open', color: 'text-sky-400', title: 'Landing page — situs utamanya di domain lain',
+    detail: rl.targets.map((t: any) => t.host + (t.site ? '' : ' (belum dianalisis)')).join(' · ') })
+  if (s.role === 'operator') f.push({ icon: 'i-lucide-castle', color: 'text-rose-400', title: `Situs utama (operator)${rl?.entries?.length ? ` · ${rl.entries.length} landing page mengarah ke sini` : ''}`,
+    detail: (rl?.entries ?? []).slice(0, 4).map((e: any) => stripScheme(e.url)).join(' · ') })
   const reg = keyLinks.value.filter((a: any) => linkRank(a) === 0)
   if (reg.length) f.push({ icon: 'i-lucide-route', color: 'text-rose-400', title: 'Pendaftaran diarahkan ke domain lain', detail: reg.map((a: any) => a.value).join(' → ') })
   const au = auth.value

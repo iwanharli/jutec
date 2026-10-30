@@ -10,43 +10,8 @@
       </template>
     </PageHeader>
 
-    <!-- Sweep yang sedang berjalan (state dibagi dengan halaman Discovery) -->
-    <UAlert v-if="sweepRunning" icon="i-lucide-loader-circle" color="primary" variant="subtle"
-      title="Deep Sweep sedang berjalan" :description="`${elapsed} · ${foundCount} target ditemukan sejauh ini`"
-      :actions="[{ label: 'Lihat progres', to: '/discovery?mode=crawler', color: 'primary', variant: 'solid' }]" />
-
-    <!-- ── 1. Butuh tindakan ── -->
-    <section>
-      <div class="flex items-end justify-between mb-3">
-        <div>
-          <h2 class="section-title">Butuh Tindakan</h2>
-          <p class="section-desc">Situs & temuan yang menunggu keputusan atau langkah lanjutan</p>
-        </div>
-      </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-5 gap-4">
-        <div v-for="a in actions" :key="a.key" class="rounded-2xl bg-slate-900/60 ring-1 p-4 flex flex-col"
-          :class="a.count ? a.ring : 'ring-slate-800'">
-          <div class="flex items-center gap-2.5">
-            <div class="w-8 h-8 rounded-lg flex items-center justify-center ring-1 shrink-0" :class="a.count ? a.box : 'bg-slate-800/60 ring-slate-700'">
-              <UIcon :name="a.icon" class="w-4 h-4" :class="a.count ? a.text : 'text-slate-500'" />
-            </div>
-            <p class="text-sm font-medium text-slate-200 leading-tight flex-1">{{ a.title }}</p>
-            <span class="text-2xl font-semibold tabular-nums" :class="a.count ? 'text-white' : 'text-slate-600'">{{ a.count }}</span>
-          </div>
-          <p class="text-[12px] text-slate-500 mt-1.5 leading-snug">{{ a.desc }}</p>
-          <ul v-if="a.items.length" class="mt-3 space-y-1 flex-1">
-            <li v-for="it in a.items" :key="it.key" class="flex items-center gap-2 text-[13px] min-w-0">
-              <NuxtLink :to="it.to" class="mono text-slate-300 hover:text-primary-300 truncate">{{ it.label }}</NuxtLink>
-              <span class="ml-auto text-slate-500 shrink-0">{{ it.sub }}</span>
-            </li>
-          </ul>
-          <EmptyState v-else compact class="mt-3 flex-1" :tone="noData ? 'neutral' : 'good'"
-            :icon="noData ? 'i-lucide-hourglass' : 'i-lucide-check'" :title="noData ? 'Menunggu data' : a.emptyTitle" />
-          <UButton v-if="a.more && a.count" :to="a.more" size="2xs" color="gray" variant="ghost" class="mt-2 self-start"
-            :label="a.count > a.items.length ? `Lihat semua (${a.count})` : 'Buka'" trailing-icon="i-lucide-arrow-right" />
-        </div>
-      </div>
-    </section>
+    <!-- Deep Sweep yang sedang berjalan di server -->
+    <SweepBanner />
 
     <!-- ── 2. KPI dengan tren ── -->
     <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
@@ -101,30 +66,104 @@
 
     <!-- ── 4. Peringkat yang mengarah ke operator ── -->
     <div class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-4 gap-4">
-      <UCard v-for="r in ranks" :key="r.key" :ui="{ header: { padding: 'px-5 py-4' }, body: { padding: 'px-5 py-3' } }">
-        <template #header>
-          <div class="flex items-center gap-2.5">
-            <UIcon :name="r.icon" class="w-4 h-4 text-slate-400" />
-            <h3 class="text-sm font-semibold text-slate-100 flex-1">{{ r.title }}</h3>
-            <NuxtLink v-if="r.more" :to="r.more" class="text-[12px] text-slate-500 hover:text-primary-300">Semua →</NuxtLink>
+      <div v-for="r in ranks" :key="r.key" class="rounded-2xl bg-slate-900/60 ring-1 ring-slate-800 p-5 flex flex-col min-h-[300px]">
+        <!-- Header ringkas -->
+        <div class="flex items-start gap-3">
+          <div class="w-9 h-9 rounded-xl flex items-center justify-center ring-1 shrink-0" :class="r.box">
+            <UIcon :name="r.icon" class="w-[18px] h-[18px]" :class="r.text" />
           </div>
+          <div class="flex-1 min-w-0">
+            <h3 class="text-sm font-semibold text-slate-100 leading-tight">{{ r.title }}</h3>
+            <p class="text-[12px] text-slate-500 mt-0.5 leading-snug">{{ r.desc }}</p>
+          </div>
+          <NuxtLink v-if="r.more && r.rows.length" :to="r.more" class="text-[12px] text-slate-500 hover:text-primary-300 shrink-0 mt-0.5">Semua</NuxtLink>
+        </div>
+
+        <EmptyState v-if="!r.rows.length" compact :icon="r.icon" title="Belum ada data" :desc="r.empty" class="mt-4 flex-1" />
+        <template v-else>
+          <div class="flex justify-end text-[11px] uppercase tracking-wider text-slate-600 mt-4 mb-1.5">situs aktif</div>
+          <ol class="space-y-2.5 flex-1">
+            <li v-for="(x, i) in r.rows" :key="i" class="group">
+              <div class="flex items-baseline gap-2 min-w-0">
+                <span class="text-[11px] tabular-nums w-3 shrink-0" :class="i === 0 ? r.text : 'text-slate-600'">{{ i + 1 }}</span>
+                <component :is="x.to ? NuxtLinkCmp : 'span'" :to="x.to" class="text-[13px] truncate flex-1 min-w-0"
+                  :class="[x.mono && 'mono', i === 0 ? 'text-white font-medium' : 'text-slate-300', x.to && 'hover:text-primary-300']">{{ x.label }}</component>
+                <span class="text-sm font-semibold tabular-nums shrink-0" :class="i === 0 ? 'text-white' : 'text-slate-200'">{{ x.active }}</span>
+              </div>
+              <!-- Bar proporsional terhadap nilai terbesar di kartu ini -->
+              <div class="flex items-center gap-2 mt-1 pl-5">
+                <div class="flex-1 h-1 rounded-full bg-slate-800 overflow-hidden">
+                  <div class="h-full rounded-full transition-all" :class="r.bar" :style="{ width: `${Math.max(4, (x.active / r.max) * 100)}%`, opacity: i === 0 ? 1 : 0.6 }" />
+                </div>
+                <span class="text-[11px] text-slate-500 shrink-0 truncate max-w-[55%]">
+                  <template v-if="x.sub">{{ x.sub }} · </template>dari {{ x.total }}
+                </span>
+              </div>
+            </li>
+          </ol>
         </template>
-        <EmptyState v-if="!r.rows.length" compact :icon="r.icon" title="Belum ada data" :desc="r.empty" class="my-1" />
-        <ol v-else class="divide-y divide-slate-800/60 -my-1">
-          <li v-for="(x, i) in r.rows" :key="i" class="py-2 flex items-center gap-2.5 min-w-0">
-            <span class="text-[12px] text-slate-600 tabular-nums w-3">{{ i + 1 }}</span>
-            <div class="min-w-0 flex-1">
-              <component :is="x.to ? resolveComponent('NuxtLink') : 'span'" :to="x.to"
-                class="block text-[13px] truncate" :class="[x.mono && 'mono', x.to ? 'text-slate-200 hover:text-primary-300' : 'text-slate-200']">{{ x.label }}</component>
-              <p v-if="x.sub" class="text-[11px] text-slate-500 truncate">{{ x.sub }}</p>
-            </div>
-            <span class="text-[13px] tabular-nums text-slate-100 font-semibold shrink-0">{{ x.active }}</span>
-            <span class="text-[11px] tabular-nums text-slate-500 shrink-0 w-8">/{{ x.total }}</span>
-          </li>
-        </ol>
-        <p v-if="r.rows.length" class="text-[11px] text-slate-600 mt-1">situs aktif / total</p>
-      </UCard>
+      </div>
     </div>
+
+    <!-- ── Butuh tindakan: kategori di kiri, isi kategori terpilih di kanan ── -->
+    <UCard :ui="{ body: { padding: 'p-0' }, header: { padding: 'px-5 py-4' } }">
+      <template #header>
+        <div class="flex flex-wrap items-center gap-3">
+          <div class="card-icon bg-amber-500/10 ring-amber-500/25"><UIcon name="i-lucide-list-todo" class="w-[18px] h-[18px] text-amber-400" /></div>
+          <div class="flex-1 min-w-0">
+            <h2 class="card-title">Butuh Tindakan</h2>
+            <p class="card-desc">Situs & temuan yang menunggu keputusan atau langkah lanjutan</p>
+          </div>
+          <UBadge :color="actionTotal ? 'amber' : 'emerald'" variant="subtle">{{ actionTotal ? `${fmt(actionTotal)} menunggu` : 'semua beres' }}</UBadge>
+        </div>
+      </template>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12">
+        <!-- Daftar kategori -->
+        <nav class="lg:col-span-4 xl:col-span-3 p-2 lg:border-r border-b lg:border-b-0 border-slate-800 flex lg:flex-col gap-1 overflow-x-auto no-scrollbar">
+          <button v-for="a in actions" :key="a.key" type="button" @click="actionKey = a.key"
+            class="shrink-0 lg:shrink text-left rounded-lg px-3 py-2.5 flex items-center gap-3 transition ring-1"
+            :class="activeAction?.key === a.key ? 'bg-slate-800/70 ring-slate-700' : 'ring-transparent hover:bg-slate-800/40'">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center ring-1 shrink-0" :class="a.count ? a.box : 'bg-slate-800/60 ring-slate-700'">
+              <UIcon :name="a.icon" class="w-4 h-4" :class="a.count ? a.text : 'text-slate-500'" />
+            </div>
+            <span class="text-sm flex-1 whitespace-nowrap" :class="activeAction?.key === a.key ? 'text-white font-medium' : 'text-slate-300'">{{ a.title }}</span>
+            <span class="text-sm font-semibold tabular-nums rounded-md px-2 py-0.5 min-w-[2rem] text-center"
+              :class="a.count ? `${a.box} ${a.text} ring-1` : 'text-slate-600'">{{ fmt(a.count) }}</span>
+          </button>
+        </nav>
+
+        <!-- Isi kategori terpilih -->
+        <div v-if="activeAction" class="lg:col-span-8 xl:col-span-9 p-5 flex flex-col min-h-[260px]">
+          <div class="flex items-start gap-3 mb-4">
+            <div class="flex-1 min-w-0">
+              <h3 class="text-base font-semibold text-slate-100">{{ activeAction.title }}</h3>
+              <p class="text-[13px] text-slate-400 mt-0.5">{{ activeAction.desc }}</p>
+            </div>
+            <UButton v-if="activeAction.more && activeAction.count" :to="activeAction.more" size="sm" color="gray" variant="soft"
+              :label="activeAction.cta" trailing-icon="i-lucide-arrow-right" />
+          </div>
+
+          <EmptyState v-if="!activeAction.items.length" class="flex-1" :tone="noData ? 'neutral' : 'good'"
+            :icon="noData ? 'i-lucide-hourglass' : 'i-lucide-check'" :title="noData ? 'Menunggu data' : activeAction.emptyTitle"
+            :desc="noData ? 'Muncul setelah situs pertama ditemukan.' : 'Tidak ada yang perlu ditindaklanjuti di kategori ini.'" />
+
+          <ul v-else class="grid sm:grid-cols-2 gap-2">
+            <li v-for="it in activeAction.items" :key="it.key">
+              <NuxtLink :to="it.to" class="group flex items-center gap-3 rounded-lg bg-slate-950/50 ring-1 ring-slate-800 hover:ring-slate-600 px-3 py-2.5 transition">
+                <span class="w-1.5 h-8 rounded-full shrink-0" :class="activeAction.dot" />
+                <span class="min-w-0 flex-1 mono text-[13px] text-slate-100 truncate group-hover:text-primary-300">{{ it.label }}</span>
+                <span class="text-[12px] tabular-nums text-slate-400 shrink-0">{{ it.sub }}</span>
+                <UIcon name="i-lucide-chevron-right" class="w-4 h-4 text-slate-600 group-hover:text-slate-300 shrink-0" />
+              </NuxtLink>
+            </li>
+          </ul>
+          <p v-if="activeAction.count > activeAction.items.length" class="text-[12px] text-slate-500 mt-3">
+            Menampilkan {{ activeAction.items.length }} dari {{ fmt(activeAction.count) }}.
+          </p>
+        </div>
+      </div>
+    </UCard>
 
     <!-- ── 5. Situs terbaru & kesehatan sistem ── -->
     <div class="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
@@ -178,8 +217,6 @@
 
 <script setup lang="ts">
 const { get } = useApi()
-const { loading: sweepRunning, logs, elapsed } = useDiscoveryState()
-const foundCount = computed(() => logs.value.filter((l: any) => l.type === 'FOUND').length)
 
 const sitesTable = ref<any>(null)
 const ov = ref<any>(null)
@@ -212,29 +249,35 @@ const siteItems = (list: any, sub: (x: any) => string) => (list?.items ?? []).ma
 const actions = computed(() => {
   const a = ov.value?.actions ?? {}
   return [
-    { key: 'unverified', title: 'Belum diverifikasi', icon: 'i-lucide-badge-help', count: a.unverified?.count ?? 0,
+    { key: 'unverified', cta: 'Buka antrean verifikasi', dot: 'bg-amber-500', title: 'Belum diverifikasi', icon: 'i-lucide-badge-help', count: a.unverified?.count ?? 0,
       desc: 'Prioritas High yang masih beroperasi, belum dikonfirmasi analis',
       ring: 'ring-amber-500/40', box: 'bg-amber-500/10 ring-amber-500/25', text: 'text-amber-400',
       items: siteItems(a.unverified, x => `${Math.round(x.confidence * 100)}%`), more: '/verifikasi', emptyTitle: 'Semua sudah diverifikasi' },
-    { key: 'revived', title: 'Hidup lagi', icon: 'i-lucide-rotate-ccw', count: a.revived?.count ?? 0,
+    { key: 'revived', cta: '', dot: 'bg-rose-500', title: 'Hidup lagi', icon: 'i-lucide-rotate-ccw', count: a.revived?.count ?? 0,
       desc: 'Situs mati yang aktif kembali ≤30 hari — operator memakai ulang domain',
       ring: 'ring-rose-500/40', box: 'bg-rose-500/10 ring-rose-500/25', text: 'text-rose-400',
       items: siteItems(a.revived, x => day(x.at)), more: '', emptyTitle: 'Tidak ada yang hidup lagi' },
-    { key: 'reappeared', title: 'Rekening muncul lagi', icon: 'i-lucide-repeat', count: a.reappeared?.length ?? 0,
+    { key: 'reappeared', cta: 'Buka repository', dot: 'bg-rose-500', title: 'Rekening muncul lagi', icon: 'i-lucide-repeat', count: a.reappeared?.length ?? 0,
       desc: 'Rekening/kontak situs mati kini dipakai situs baru',
       ring: 'ring-rose-500/40', box: 'bg-rose-500/10 ring-rose-500/25', text: 'text-rose-400',
       items: (a.reappeared ?? []).map((x: any) => ({ key: x.value, label: x.value, sub: x.name || x.type,
         to: `/reverse-lookup?type=${encodeURIComponent(x.type)}&v=${encodeURIComponent(x.value)}` })), more: '/repository?tab=artifacts', emptyTitle: 'Tidak ada yang berulang' },
-    { key: 'blocked_alive', title: 'Lolos blokir', icon: 'i-lucide-shield-off', count: a.blocked_alive?.count ?? 0,
+    { key: 'blocked_alive', cta: 'Lihat semua situs', dot: 'bg-orange-500', title: 'Lolos blokir', icon: 'i-lucide-shield-off', count: a.blocked_alive?.count ?? 0,
       desc: 'Diblokir ISP tapi server masih melayani pemain lewat VPN/DNS lain',
       ring: 'ring-orange-500/40', box: 'bg-orange-500/10 ring-orange-500/25', text: 'text-orange-400',
       items: siteItems(a.blocked_alive, x => x.at ? `sejak ${day(x.at)}` : ''), more: '/repository?tab=sites', emptyTitle: 'Tidak ada yang lolos' },
-    { key: 'no_evidence', title: 'Bukti belum diambil', icon: 'i-lucide-camera-off', count: a.no_evidence?.count ?? 0,
+    { key: 'no_evidence', cta: '', dot: 'bg-sky-500', title: 'Bukti belum diambil', icon: 'i-lucide-camera-off', count: a.no_evidence?.count ?? 0,
       desc: 'High beroperasi tanpa rekaman bukti forensik',
       ring: 'ring-sky-500/40', box: 'bg-sky-500/10 ring-sky-500/25', text: 'text-sky-400',
       items: siteItems(a.no_evidence, x => `${Math.round(x.confidence * 100)}%`), more: '', emptyTitle: 'Semua sudah ada bukti' },
   ]
 })
+
+const NuxtLinkCmp = resolveComponent('NuxtLink')
+const actionKey = ref('')
+const actionTotal = computed(() => actions.value.reduce((n, a) => n + (a.count ?? 0), 0))
+// Kategori aktif: pilihan pengguna, atau kategori pertama yang berisi
+const activeAction = computed(() => actions.value.find(a => a.key === actionKey.value) ?? actions.value.find(a => a.count) ?? actions.value[0])
 
 const lifeRows = computed(() => {
   const l = ov.value?.lifecycle ?? {}
@@ -252,17 +295,22 @@ const lifeTotal = computed(() => lifeRows.value.reduce((s, r) => s + r.n, 0))
 
 const ranks = computed(() => {
   const o = ov.value ?? {}
-  return [
-    { key: 'ops', title: 'Operator Teraktif', icon: 'i-lucide-network', more: '/repository?tab=operators', empty: 'Klaster terbentuk saat ≥2 situs berbagi atribut kuat',
+  const list = [
+    { key: 'ops', title: 'Operator Teraktif', desc: 'Klaster dengan situs terbanyak', icon: 'i-lucide-network', more: '/repository?tab=operators',
+      box: 'bg-rose-500/10 ring-rose-500/25', text: 'text-rose-400', bar: 'bg-rose-500', empty: 'Klaster terbentuk saat ≥2 situs berbagi atribut kuat',
       rows: (o.top_operators ?? []).map((x: any) => ({ label: x.label, sub: x.sub, active: x.active_sites, total: x.total_sites, mono: true })) },
-    { key: 'money', title: 'Rekening Terbanyak', icon: 'i-lucide-landmark', more: '/repository?tab=artifacts', empty: 'Rekening & e-wallet dari situs yang masih beroperasi',
-      rows: (o.top_money ?? []).map((x: any) => ({ label: x.value, sub: [x.name, x.type].filter(Boolean).join(' · '), active: x.active_sites, total: x.total_sites, mono: true,
+    { key: 'money', title: 'Rekening Terbanyak', desc: 'Rekening & e-wallet lintas situs', icon: 'i-lucide-landmark', more: '/repository?tab=artifacts',
+      box: 'bg-violet-500/10 ring-violet-500/25', text: 'text-violet-400', bar: 'bg-violet-500', empty: 'Rekening & e-wallet dari situs yang masih beroperasi',
+      rows: (o.top_money ?? []).map((x: any) => ({ label: x.value, sub: x.name || x.type, active: x.active_sites, total: x.total_sites, mono: true,
         to: `/reverse-lookup?type=${encodeURIComponent(x.type)}&v=${encodeURIComponent(x.value)}` })) },
-    { key: 'prov', title: 'Provider Game', icon: 'i-lucide-gamepad-2', more: '', empty: 'Terdeteksi dari panggilan API game saat crawl',
+    { key: 'prov', title: 'Provider Game', desc: 'Penyedia game di situs judol', icon: 'i-lucide-gamepad-2', more: '',
+      box: 'bg-amber-500/10 ring-amber-500/25', text: 'text-amber-400', bar: 'bg-amber-500', empty: 'Terdeteksi dari panggilan API game saat crawl',
       rows: (o.top_providers ?? []).map((x: any) => ({ label: x.label, active: x.active_sites, total: x.total_sites })) },
-    { key: 'hosts', title: 'Hosting (non-CDN)', icon: 'i-lucide-server', more: '', empty: 'IP server asli yang dipakai ≥2 situs aktif',
+    { key: 'hosts', title: 'Hosting (non-CDN)', desc: 'IP server asli yang dipakai bersama', icon: 'i-lucide-server', more: '',
+      box: 'bg-cyan-500/10 ring-cyan-500/25', text: 'text-cyan-400', bar: 'bg-cyan-500', empty: 'IP server asli yang dipakai ≥2 situs aktif',
       rows: (o.top_hosts ?? []).map((x: any) => ({ label: x.label, sub: x.sub, active: x.active_sites, total: x.total_sites, mono: true, to: `/ip/${x.label}` })) },
   ]
+  return list.map(r => ({ ...r, max: Math.max(1, ...r.rows.map((x: any) => x.active)) }))
 })
 
 async function load() {
@@ -278,3 +326,8 @@ let poll: any = null
 onMounted(() => { load(); poll = setInterval(load, 30_000) })
 onUnmounted(() => clearInterval(poll))
 </script>
+
+<style scoped>
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+</style>
