@@ -1,6 +1,7 @@
 package crawler
 
 import (
+	"jutec-go/internal/urlnorm"
 	"net/url"
 	"regexp"
 	"strings"
@@ -74,7 +75,7 @@ func ExtractLinks(html, rawBaseURL string) *ExtractedLinks {
 		// Unwrap link wrapper (l.wl.co, l.facebook.com, t.co, dll)
 		link = unwrapURL(link)
 		if isAppURL(link) {
-			appsSeen[link] = true
+			appsSeen[urlnorm.AppURL(link)] = true
 			return
 		}
 		if isRegisterURL(link) {
@@ -162,7 +163,7 @@ func ExtractLinks(html, rawBaseURL string) *ExtractedLinks {
 			continue
 		}
 		if isAppURL(link) {
-			appsSeen[link] = true
+			appsSeen[urlnorm.AppURL(link)] = true
 			continue
 		}
 		domain := extractDomain(link)
@@ -235,7 +236,7 @@ var knownShorteners = []string{
 	"short.io", "rb.gy", "cutt.ly", "shorturl.at", "is.gd",
 	"gg.gg", "v.gd", "tiny.cc",
 	// Umum di situs judol Indonesia (tombol DAFTAR/LOGIN anti-blokir)
-	"jali.me", "jaga.link", "bit.do", "ow.ly", "kutt.it", "shorturl.asia",
+	"jali.me", "jaga.link", "ronic.link", "bit.do", "ow.ly", "kutt.it", "shorturl.asia",
 	"cutt.us", "u.to", "clck.ru", "goo.su", "tny.im", "linkr.it", "bitly.ws",
 }
 
@@ -449,6 +450,13 @@ func skip(link string) bool {
 		strings.HasPrefix(lower, "data:")
 }
 
+// pageFileExt: akhiran nama file halaman/aset yang tidak mungkin TLD.
+var pageFileExt = map[string]bool{
+	"aspx": true, "asp": true, "php": true, "html": true, "htm": true, "jsp": true, "cgi": true, "do": true,
+	"action": true, "js": true, "css": true, "json": true, "xml": true, "png": true, "jpg": true, "jpeg": true,
+	"gif": true, "svg": true, "webp": true, "ico": true, "pdf": true, "apk": true, "txt": true,
+}
+
 func resolveURL(link, base string) string {
 	// Bersihkan karakter tidak valid di akhir URL (backslash, spasi, dll)
 	link = strings.TrimRight(link, "\\/\t\r\n")
@@ -464,9 +472,12 @@ func resolveURL(link, base string) string {
 
 	// Bare domain detection: "domain.com/path" tanpa protocol
 	// Heuristic: ada titik di bagian pertama dan tidak dimulai dengan "/"
+	// Nama file relatif ("Register.aspx", "login.php") bukan domain — dikenali dari ekstensinya.
 	if !strings.HasPrefix(link, "/") && !strings.HasPrefix(link, ".") {
 		parts := strings.SplitN(link, "/", 2)
-		if strings.Contains(parts[0], ".") && !strings.Contains(parts[0], " ") {
+		first := strings.SplitN(strings.SplitN(parts[0], "?", 2)[0], "#", 2)[0]
+		ext := strings.ToLower(first[strings.LastIndex(first, ".")+1:])
+		if strings.Contains(first, ".") && !strings.Contains(first, " ") && !pageFileExt[ext] {
 			return "https://" + link
 		}
 	}

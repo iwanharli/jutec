@@ -166,6 +166,7 @@ func SetupRouter(neo4j *store.Neo4jDB, pg *store.PostgresDB, serperKey string, s
 	kw := r.Group("/keywords")
 	{
 		kw.GET("/detection", kwHandler.ListDetection)
+		kw.GET("/detection/stats", kwHandler.DetectionStats)
 		kw.POST("/detection", kwHandler.CreateDetection)
 		kw.PUT("/detection/:id", kwHandler.UpdateDetection)
 		kw.DELETE("/detection/:id", kwHandler.DeleteDetection)
@@ -246,6 +247,17 @@ func SetupRouter(neo4j *store.Neo4jDB, pg *store.PostgresDB, serperKey string, s
 	r.GET("/audit/verify", auditHandler.Verify)
 
 	// Sweep Jobs (pause/resume)
+	maint := &handlers.MaintenanceHandler{PG: pg, Tasks: taskClient}
+	mt := r.Group("/maintenance")
+	{
+		mt.GET("/summary", maint.Summary)
+		mt.GET("/artifacts/fake", maint.FakeArtifacts)
+		mt.POST("/artifacts/clean", maint.CleanArtifacts)
+		mt.POST("/rescan", maint.StartRescan)
+		mt.GET("/rescan", maint.RescanStatus)
+		mt.POST("/cache/clear", maint.ClearCache)
+	}
+
 	sweep := r.Group("/sweep")
 	{
 		sweep.POST("/start",       sweepJobHandler.Start)

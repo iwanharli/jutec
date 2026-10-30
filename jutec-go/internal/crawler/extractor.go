@@ -12,7 +12,9 @@ var reMultiSpace = regexp.MustCompile(`[ \t]{2,}`)
 // stripHTML menghilangkan tag HTML dan entity, mengganti dengan spasi agar
 // teks seperti "<td>BCA</td><td>1234567890</td>" tetap bisa diproses regex.
 func stripHTML(html string) string {
-	s := reHTMLTag.ReplaceAllString(html, " ")
+	// Isi <script>/<style> bukan teks halaman — penuh timestamp & ID yang mirip nomor rekening
+	s := reDropBlocks.ReplaceAllString(html, " ")
+	s = reHTMLTag.ReplaceAllString(s, " ")
 	s = reHTMLEntity.ReplaceAllString(s, " ")
 	s = reMultiSpace.ReplaceAllString(s, " ")
 	return strings.TrimSpace(s)
@@ -75,10 +77,14 @@ func ExtractArtifacts(html string) []TransactionArtifact {
 
 	// 1. Bank Indonesia — nama bank diikuti nomor rekening 10-16 digit
 	// Pattern diperluas: izinkan sampai 40 karakter non-digit antara nama bank & nomor
+	// Nama bank harus kata utuh ("BSI" bukan bagian dari "website", "NEO" bukan "someone") dan
+	// nomornya berdiri sendiri; angka yang jelas bukan rekening (timestamp, tanggal, nomor HP) ditolak.
 	for _, bank := range bankList {
-		re := regexp.MustCompile(`(?i)` + bank + `[^0-9]{0,40}?(\d{10,16})`)
+		re := regexp.MustCompile(`(?i)\b` + bank + `\b[^0-9]{0,40}?\b(\d{10,16})\b`)
 		for _, m := range re.FindAllStringSubmatch(text, -1) {
-			artifacts = append(artifacts, TransactionArtifact{Type: "Bank", Value: m[1], Name: bank})
+			if plausibleAccount(m[1]) {
+				artifacts = append(artifacts, TransactionArtifact{Type: "Bank", Value: m[1], Name: bank})
+			}
 		}
 	}
 
@@ -164,4 +170,35 @@ func uniqueArtifacts(input []TransactionArtifact) []TransactionArtifact {
 		}
 	}
 	return list
+}
+
+// plausibleAccount menolak angka panjang yang hampir pasti bukan nomor rekening.
+func plausibleAccount(v string) bool { return AccountRejectReason(v) == "" }
+
+// AccountRejectReason menjelaskan kenapa angka panjang bukan nomor rekening ("" = masuk akal).
+// Dipakai ekstraksi dan halaman Pemeliharaan (pratinjau pembersihan data lama) — satu aturan untuk keduanya.
+func AccountRejectReason(v string) string {
+	n := len(v)
+	// Timestamp milidetik (2011–2033): 13 digit diawali 13–19. Pengecualian: rekening Mandiri juga
+	// 13 digit berawalan 1, tetapi berformat CCC-00-NNNNNNN-N (digit ke-4 & ke-5 = "00").
+	if n == 13 && v[0] == '1' && v[1] >= '3' && v[3:5] != "00" {
+		return "timestamp"
+	}
+	// Tanggal/waktu: diawali tahun 1990–2039 lalu bulan 01–12 (YYYYMM…), mis. 20260531050600, 199401009721
+	if n >= 10 && (strings.HasPrefix(v, "19") || strings.HasPrefix(v, "20")) {
+		y := v[2] - '0'
+		m := (v[4]-'0')*10 + (v[5] - '0')
+		if ((v[:2] == "19" && y == 9) || (v[:2] == "20" && y <= 3)) && m >= 1 && m <= 12 {
+			return "tanggal / nomor registrasi"
+		}
+	}
+	// Nomor HP Indonesia (628…/08…) — dicatat sebagai kontak, bukan rekening
+	if (strings.HasPrefix(v, "628") && n >= 11 && n <= 14) || (strings.HasPrefix(v, "08") && n >= 10 && n <= 13) {
+		return "nomor HP"
+	}
+	// Angka berulang/berurutan (0000000000, 1234567890…) — placeholder
+	if strings.Count(v, v[:1]) == n || strings.Contains("01234567890123456789", v) {
+		return "angka contoh"
+	}
+	return ""
 }

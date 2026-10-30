@@ -1,6 +1,7 @@
 package store
 
 import (
+	"jutec-go/internal/urlnorm"
 	"context"
 	"path"
 	"strings"
@@ -42,7 +43,7 @@ func extractFilename(rawURL string) string {
 // Fully idempotent — duplikat diabaikan.
 func (db *PostgresDB) SaveApps(ctx context.Context, siteID int, appURLs []string) error {
 	for _, rawURL := range appURLs {
-		rawURL = strings.TrimSpace(rawURL)
+		rawURL = urlnorm.AppURL(rawURL)
 		if rawURL == "" {
 			continue
 		}

@@ -1,6 +1,9 @@
 package crawler
 
 import (
+	"html"
+	"regexp"
+	"sync"
 	"strings"
 )
 
@@ -48,10 +51,13 @@ func (a *Analyzer) Analyze(html string, keywords []WeightedKeyword, network *Net
 	// agar address crypto case-sensitive (TRON: T...) dan tag HTML bisa di-strip dengan benar.
 	htmlLower := strings.ToLower(html)
 
+	// Kata kunci dicocokkan pada teks yang TERLIHAT (+ title/meta/alt), utuh per kata.
+	// Mencocokkan HTML mentah membuat "slot" cocok dengan tag <slot> Web Components, class CSS, skrip, dll.
+	visible := visibleText(html)
 	var foundKeywords []string
 	keywordScore := 0.0
 	for _, kw := range keywords {
-		if strings.Contains(htmlLower, strings.ToLower(kw.Keyword)) {
+		if keywordRegexp(kw.Keyword).MatchString(visible) {
 			foundKeywords = append(foundKeywords, kw.Keyword)
 			keywordScore += kw.Weight
 		}
@@ -77,11 +83,16 @@ func (a *Analyzer) Analyze(html string, keywords []WeightedKeyword, network *Net
 	if confidence > 1.0 {
 		confidence = 1.0
 	}
+	// Satu kata kunci saja (mis. "withdraw" di exchange kripto) bukan bukti judi
+	if len(foundKeywords) < 2 && confidence > 0.4 {
+		confidence = 0.4
+	}
 
 	priority := "Low"
-	hasPayment        := len(artifacts) > 0
+	// Hanya alat pembayaran yang dihitung "pembayaran"; nomor WA/Telegram/Discord CS ada di situs biasa juga
+	hasPayment        := hasPaymentArtifact(artifacts)
 	hasGameProvider   := network != nil && len(network.GameProviders) > 0
-	hasStrongKeywords := keywordScore >= 0.4
+	hasStrongKeywords := keywordScore >= 0.4 && len(foundKeywords) >= 2
 	hasSomeKeywords   := keywordScore >= 0.2 // minimal 1 keyword terdeteksi
 
 	if (hasStrongKeywords || hasGameProvider) && hasPayment {
@@ -92,11 +103,17 @@ func (a *Analyzer) Analyze(html string, keywords []WeightedKeyword, network *Net
 		if confidence < 0.6 {
 			confidence = 0.6
 		}
-	} else if hasSomeKeywords || len(foundPatterns) >= 1 || hasPayment {
+	} else if hasSomeKeywords || len(foundPatterns) >= 1 || hasPayment || len(artifacts) > 0 {
 		priority = "Medium"
 		if confidence < 0.4 {
 			confidence = 0.4
 		}
+	}
+
+	// Tanpa alat pembayaran maupun provider game, konten saja dibatasi 75% — kata kunci bisa muncul
+	// di situs berita, ulasan, atau exchange kripto; bukti transaksi yang membedakan situs judol.
+	if !hasPayment && !hasGameProvider && confidence > 0.75 {
+		confidence = 0.75
 	}
 
 	return &AnalysisResult{
@@ -148,4 +165,46 @@ func (a *Analyzer) AnalyzeOCRText(text string, keywords []WeightedKeyword) *Anal
 		FoundKeywords: foundKeywords,
 		Artifacts:     artifacts,
 	}
+}
+
+var (
+	reDropBlocks = regexp.MustCompile(`(?is)<(script|style|noscript|template|svg)\b[^>]*>.*?</(script|style|noscript|template|svg)>`)
+	reAttrText   = regexp.MustCompile(`(?i)\b(?:alt|title|content|aria-label|placeholder)\s*=\s*["']([^"']{2,300})["']`)
+	reTags       = regexp.MustCompile(`(?s)<[^>]+>`)
+	reSpaces     = regexp.MustCompile(`\s+`)
+	kwPatterns   sync.Map // keyword → *regexp.Regexp
+)
+
+// visibleText: teks yang dibaca pengunjung — isi halaman tanpa skrip/style, ditambah teks atribut
+// alt/title/meta content (banner judol sering berupa gambar dengan alt "slot gacor").
+func visibleText(src string) string {
+	attrs := reAttrText.FindAllStringSubmatch(src, -1)
+	body := reTags.ReplaceAllString(reDropBlocks.ReplaceAllString(src, " "), " ")
+	var b strings.Builder
+	b.WriteString(body)
+	for _, a := range attrs {
+		b.WriteString(" ")
+		b.WriteString(a[1])
+	}
+	return strings.ToLower(reSpaces.ReplaceAllString(html.UnescapeString(b.String()), " "))
+}
+
+// keywordRegexp mencocokkan keyword sebagai kata/frasa utuh ("slot" tidak cocok dengan "timeslot").
+func keywordRegexp(kw string) *regexp.Regexp {
+	if re, ok := kwPatterns.Load(kw); ok {
+		return re.(*regexp.Regexp)
+	}
+	re := regexp.MustCompile(`(?:^|[^\p{L}\p{N}])` + regexp.QuoteMeta(strings.ToLower(kw)) + `(?:$|[^\p{L}\p{N}])`)
+	kwPatterns.Store(kw, re)
+	return re
+}
+
+func hasPaymentArtifact(arts []TransactionArtifact) bool {
+	for _, a := range arts {
+		switch a.Type {
+		case "Bank", "E-Wallet", "VirtualAccount", "QRIS", "Crypto":
+			return true
+		}
+	}
+	return false
 }

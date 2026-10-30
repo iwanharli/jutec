@@ -217,3 +217,13 @@ func writeDBError(c *gin.Context, err error) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 	}
 }
+
+// GET /keywords/detection/stats — ketepatan tiap kata kunci menurut situs yang sudah diverifikasi
+func (h *KeywordHandler) DetectionStats(c *gin.Context) {
+	res, err := h.PG.KeywordStats(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, res)
+}

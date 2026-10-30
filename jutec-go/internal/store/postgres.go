@@ -61,6 +61,26 @@ func (db *PostgresDB) SaveScanResult(ctx context.Context, url string, isGambling
 	return siteID, err
 }
 
+// SaveScanFailure mencatat scan yang gagal (timeout, diblokir, proteksi bot). Situs yang sudah ada
+// HANYA diperbarui status & waktu scan-nya — vonis judol/prioritas/skor sebelumnya dipertahankan,
+// karena kegagalan sementara bukan bukti situs itu bersih. Situs baru dicatat sebagai tak terjangkau.
+func (db *PostgresDB) SaveScanFailure(ctx context.Context, url string, result interface{}) error {
+	if c, err := urlnorm.Canonical(url); err == nil {
+		url = c
+	}
+	var siteID int
+	err := db.Pool.QueryRow(ctx, `
+		INSERT INTO sites (url, is_gambling, priority, confidence, status, last_scanned_at)
+		VALUES ($1, false, 'Low', 0, 'unreachable', CURRENT_TIMESTAMP)
+		ON CONFLICT ((lower(rtrim(url, '/')))) DO UPDATE SET status = 'unreachable', last_scanned_at = CURRENT_TIMESTAMP
+		RETURNING id`, url).Scan(&siteID)
+	if err != nil {
+		return err
+	}
+	_, err = db.Pool.Exec(ctx, `INSERT INTO scan_logs (site_id, url, result) VALUES ($1, $2, $3)`, siteID, url, result)
+	return err
+}
+
 // GetSiteID mengembalikan ID situs berdasarkan URL. Mengembalikan 0 jika tidak ditemukan.
 func (db *PostgresDB) GetSiteID(ctx context.Context, rawURL string) int {
 	var id int

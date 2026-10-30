@@ -1,7 +1,7 @@
 package crawler
 
 import (
-	"net/http"
+	"jutec-go/internal/netutil"
 	"net/url"
 	"regexp"
 	"sort"
@@ -77,16 +77,20 @@ func (c *Crawler) collectAuthSurface(result *AnalysisResult, pages map[string]st
 			targets = append(targets, u)
 		}
 	}
-	client := &http.Client{Timeout: 10 * time.Second}
+	// Lewat DoH: halaman daftar di domain yang diblokir ISP tetap bisa dibaca
+	client := netutil.HTTPClient(10 * time.Second)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	for _, t := range targets {
 		wg.Add(1)
 		go func(t string) {
 			defer wg.Done()
-			if h := fetchHTML(client, t); h != "" {
+			if h, final := fetchHTMLFinal(client, t); h != "" {
+				if final == "" {
+					final = t
+				}
 				mu.Lock()
-				pages[t] = h
+				pages[final] = h // kunci = URL akhir, agar alamat form relatif diselesaikan terhadap domain yang benar
 				mu.Unlock()
 			}
 		}(t)
@@ -186,8 +190,11 @@ func readForm(form *html.Node, base *url.URL, siteHost string) (AuthForm, bool) 
 		f.PageURL = base.String()
 		act := attr(form, "action")
 		if ref, err := url.Parse(strings.TrimSpace(act)); err == nil {
-			f.Action = base.ResolveReference(ref).String()
-			if h := ref.Hostname(); h != "" && rootDomain(h) != rootDomain(siteHost) {
+			abs := base.ResolveReference(ref)
+			f.Action = abs.String()
+			// Bandingkan tujuan AKHIR (bukan hanya action ber-domain eksplisit): form relatif di halaman
+			// domain lain juga mengirim data ke luar situs ini
+			if h := abs.Hostname(); h != "" && rootDomain(h) != rootDomain(siteHost) {
 				f.ExternalAct = true
 			}
 		}

@@ -44,6 +44,8 @@ type SiteCore struct {
 	ReachCheckedAt *time.Time     `json:"reach_checked_at"`
 	BlockedSince   *time.Time     `json:"blocked_since"`
 	Lifecycle      string         `json:"lifecycle"` // active | blocked_alive | uncertain | inactive (lihat site_lifecycle)
+	Role           *string        `json:"role"`      // operator (situs utama) | landing (pintu masuk) | null
+	EntryTargets   []string       `json:"entry_targets"`
 	RevivedAt      *time.Time     `json:"revived_at"`
 }
 
@@ -109,6 +111,7 @@ type SiteDetail struct {
 	ImageCount    int            `json:"image_count"`
 	GameProviders []string       `json:"game_providers"` // provider game (Pragmatic, PG Soft, …) dari scan terakhir
 	ScoreExplain  *ScoreExplain  `json:"score_explain"`  // dasar skor dari scan lengkap terakhir (null bila belum pernah)
+	RoleLinks     RoleLinks      `json:"role_links"`     // landing page ↔ situs utama
 }
 
 // ScoreExplain menjelaskan dari mana skor situs berasal: kontribusi tiap sinyal, kata kunci & pola yang cocok,
@@ -264,14 +267,14 @@ func (db *PostgresDB) GetSiteDetail(ctx context.Context, siteID int) (*SiteDetai
 		       app_promo, app_promo_evidence, app_promo_platforms, internal_pages, auth_surface, widget_links,
 		       verified_status, verified_by, verified_at, verified_note,
 		       reach_status, reach_checked_at, blocked_since,
-		       site_lifecycle(reach_status, status, offline_since), revived_at
+		       site_lifecycle(reach_status, status, offline_since), revived_at, role, entry_targets
 		FROM sites WHERE id = $1`, siteID).Scan(
 		&s.ID, &s.URL, &s.Priority, &s.Confidence, &s.IsGambling,
 		&s.Status, &s.SimHash, &s.RescanCount, &s.CreatedAt, &s.LastScannedAt, &s.OfflineSince,
 		&s.AppPromo, &s.AppPromoEvid, &s.AppPromoPlat, &s.InternalPages, &s.AuthSurface, &s.WidgetLinks,
 		&s.VerifiedStatus, &s.VerifiedBy, &s.VerifiedAt, &s.VerifiedNote,
 		&s.ReachStatus, &s.ReachCheckedAt, &s.BlockedSince,
-		&s.Lifecycle, &s.RevivedAt)
+		&s.Lifecycle, &s.RevivedAt, &s.Role, &s.EntryTargets)
 	if err != nil {
 		return nil, err
 	}
@@ -389,6 +392,8 @@ func (db *PostgresDB) GetSiteDetail(ctx context.Context, siteID int) (*SiteDetai
 		}
 		d.ScoreExplain = &ex
 	}
+
+	d.RoleLinks = db.siteRoleLinks(ctx, siteID, s.URL, s.EntryTargets)
 
 	// Situs unreachable tak punya atribut — kirim [] bukan null agar klien tak perlu cek null
 	if d.Attributes == nil {

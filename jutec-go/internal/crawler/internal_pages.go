@@ -69,22 +69,29 @@ func isAssetPath(p string) bool {
 
 // fetchHTML mengambil halaman lewat HTTP biasa (tanpa browser) dengan profil HP.
 func fetchHTML(client *http.Client, pageURL string) string {
+	h, _ := fetchHTMLFinal(client, pageURL)
+	return h
+}
+
+// fetchHTMLFinal juga mengembalikan URL akhir setelah redirect — dasar yang benar untuk alamat relatif
+// (halaman daftar sering dibuka lewat shortener yang mengalihkan ke domain lain).
+func fetchHTMLFinal(client *http.Client, pageURL string) (string, string) {
 	req, err := http.NewRequest("GET", pageURL, nil)
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	req.Header.Set("User-Agent", mobileUserAgent)
 	req.Header.Set("Accept-Language", "id-ID,id;q=0.9")
 	res, err := client.Do(req)
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 || !strings.Contains(strings.ToLower(res.Header.Get("Content-Type")), "html") {
-		return ""
+		return "", ""
 	}
 	b, _ := io.ReadAll(io.LimitReader(res.Body, 3*1024*1024))
-	return string(b)
+	return string(b), res.Request.URL.String()
 }
 
 // crawlInternalPages mengambil halaman internal penting secara paralel dan menggabungkan

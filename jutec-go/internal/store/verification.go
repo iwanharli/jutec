@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -77,6 +78,14 @@ type VerifyQueueItem struct {
 	Money         int        `json:"money"` // rekening/e-wallet/QRIS/kripto
 	Providers     int        `json:"providers"`
 	Clustered     bool       `json:"clustered"`
+	// Bahan keputusan analis — kenapa situs ini dinilai judol
+	Contacts   int        `json:"contacts"`    // WA/Telegram/nomor HP
+	Apps       int        `json:"apps"`        // link aplikasi/APK
+	Keywords   []string   `json:"keywords"`    // kata kunci yang cocok di scan lengkap terakhir
+	Rule       string     `json:"rule"`        // aturan skor yang menentukan prioritas
+	Lifecycle  string     `json:"lifecycle"`   // active | blocked_alive | uncertain | inactive
+	EvidenceID *int       `json:"evidence_id"` // bukti forensik terbaru (untuk thumbnail)
+	CreatedAt  *time.Time `json:"created_at"`
 }
 
 // VerifyQueue: situs bertanda judol yang belum diverifikasi manusia. Urutan: bukti terlemah dulu
@@ -99,8 +108,19 @@ func (db *PostgresDB) VerifyQueue(ctx context.Context, priority, sort string, li
 		         WHERE l.site_id=s.id AND jsonb_typeof(l.result->'result'->'network_signals'->'game_providers')='array'
 		         ORDER BY l.created_at DESC LIMIT 1), 0) AS providers,
 		       EXISTS (SELECT 1 FROM site_operators so JOIN operators o ON o.id=so.operator_id AND o.platform='Klaster' WHERE so.site_id=s.id) AS clustered,
+		       (SELECT COUNT(*) FROM site_artifacts sa JOIN artifacts a ON a.id=sa.artifact_id
+		         WHERE sa.site_id=s.id AND a.type IN ('Contact','Phone')) AS contacts,
+		       (SELECT COUNT(*) FROM site_apps sp WHERE sp.site_id=s.id) AS apps,
+		       COALESCE(lk.kw, '[]'::jsonb), COALESCE(lk.rule, ''),
+		       site_lifecycle(s.reach_status, s.status, s.offline_since),
+		       (SELECT e.id FROM evidence_captures e WHERE e.site_id=s.id AND e.status='done' ORDER BY e.id DESC LIMIT 1),
+		       s.created_at,
 		       COUNT(*) OVER()
 		FROM sites s
+		LEFT JOIN LATERAL (
+			SELECT l.result->'result'->'found_keywords' AS kw, l.result->'score'->>'rule' AS rule
+			FROM scan_logs l WHERE l.site_id = s.id AND NOT (l.result ? 'error') AND l.result ? 'score'
+			ORDER BY l.created_at DESC LIMIT 1) lk ON true
 		WHERE s.is_gambling AND s.verified_status IS NULL AND ($1 = '' OR s.priority = $1)
 		ORDER BY `+order+`, s.id LIMIT $2 OFFSET $3`, priority, limit, offset)
 	if err != nil {
@@ -111,8 +131,13 @@ func (db *PostgresDB) VerifyQueue(ctx context.Context, priority, sort string, li
 	total := 0
 	for rows.Next() {
 		var v VerifyQueueItem
-		if err := rows.Scan(&v.ID, &v.URL, &v.Priority, &v.Confidence, &v.Status, &v.LastScannedAt, &v.Artifacts, &v.Money, &v.Providers, &v.Clustered, &total); err != nil {
+		var kw []byte
+		if err := rows.Scan(&v.ID, &v.URL, &v.Priority, &v.Confidence, &v.Status, &v.LastScannedAt, &v.Artifacts, &v.Money, &v.Providers, &v.Clustered,
+			&v.Contacts, &v.Apps, &kw, &v.Rule, &v.Lifecycle, &v.EvidenceID, &v.CreatedAt, &total); err != nil {
 			return nil, 0, err
+		}
+		if json.Unmarshal(kw, &v.Keywords) != nil || v.Keywords == nil {
+			v.Keywords = []string{}
 		}
 		out = append(out, v)
 	}
@@ -129,5 +154,14 @@ func (db *PostgresDB) VerifyStats(ctx context.Context) map[string]int {
 		COUNT(*) FILTER (WHERE verified_status='judol'),
 		COUNT(*) FILTER (WHERE verified_status='bukan_judol') FROM sites`).Scan(&a, &b, &c, &d)
 	out["pending"], out["pending_high"], out["verified_judol"], out["verified_not"] = a, b, c, d
+	var e, f int
+	db.Pool.QueryRow(ctx, `SELECT COUNT(*) FILTER (WHERE is_gambling AND verified_status IS NULL AND priority='Medium'),
+		COUNT(*) FILTER (WHERE is_gambling AND verified_status IS NULL AND priority='Low') FROM sites`).Scan(&e, &f)
+	out["pending_medium"], out["pending_low"] = e, f
+	// Keputusan hari ini (WIB) — tidak termasuk pembatalan
+	var g int
+	db.Pool.QueryRow(ctx, `SELECT COUNT(DISTINCT site_id) FROM site_verifications
+		WHERE status <> 'reset' AND at >= date_trunc('day', NOW() AT TIME ZONE 'Asia/Jakarta') AT TIME ZONE 'Asia/Jakarta'`).Scan(&g)
+	out["today"] = g
 	return out
 }

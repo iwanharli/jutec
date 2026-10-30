@@ -98,7 +98,7 @@ func (s *ScanService) analyzeURLInternal(ctx context.Context, url string, depth 
 	if err != nil {
 		if s.PG != nil {
 			payload := map[string]interface{}{"error": err.Error()}
-			s.PG.SaveScanResult(ctx, url, false, "Low", 0, "unreachable", payload)
+			s.PG.SaveScanFailure(ctx, url, payload)
 		}
 		return &ScanResult{URL: url, Error: err.Error()}, err
 	}
@@ -153,6 +153,12 @@ func (s *ScanService) analyzeURLInternal(ctx context.Context, url string, depth 
 	// 5. Postgres — simpan semua situs (gambling maupun tidak) sebagai audit log
 	progress("saving", "Menyimpan hasil ke database...", nil)
 	pgSaved, siteID := s.persistToPostgres(ctx, url, analysis, score, "active")
+
+	// Peran dalam jaringan: situs utama (operator) atau landing page yang mengarah ke domain lain
+	if siteID > 0 && s.PG != nil {
+		role, targets := crawler.ClassifyRole(analysis, url)
+		s.PG.SaveSiteRole(ctx, siteID, role, targets)
+	}
 
 	// Diblokir DNS ISP tetapi berhasil dibuka lewat IP asli → catat sebagai "diblokir, masih hidup"
 	if siteID > 0 && analysis.ISPBlocked && s.PG != nil {
@@ -241,7 +247,8 @@ func (s *ScanService) subCrawlExternalLinks(ctx context.Context, parentSiteID in
 		}
 		if u, err := neturl.Parse(link); err == nil {
 			h := strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.")
-			if seenHost[h] {
+			// Daftar noise yang sama dengan penyimpanan tautan (api.w.org, beacon analytics, dll.)
+			if seenHost[h] || store.IsNoiseDomain(h) {
 				continue
 			}
 			seenHost[h] = true

@@ -5,6 +5,7 @@ package urlnorm
 import (
 	"errors"
 	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -41,3 +42,24 @@ func Canonical(raw string) (string, error) {
 // Key: kunci pembanding di database — harus sama persis dengan indeks unik
 // sites_url_canonical_idx: lower(rtrim(url, '/')).
 func Key(u string) string { return strings.ToLower(strings.TrimRight(u, "/")) }
+
+var (
+	reIOSAppID  = regexp.MustCompile(`apps\.apple\.com/.*?/?id(\d{6,12})`)
+	rePlayAppID = regexp.MustCompile(`play\.google\.com/store/apps/details\?(?:.*&)?id=([A-Za-z0-9_.]+)`)
+)
+
+// AppURL menyeragamkan tautan aplikasi agar satu aplikasi tersimpan sekali:
+// tautan App Store/Play Store dari HTML/JSON sering membawa escape (&, &amp;, \/) dan
+// parameter kampanye berbeda-beda. Tautan .apk/.ipa langsung hanya dibersihkan escape-nya.
+func AppURL(raw string) string {
+	s := strings.TrimSpace(raw)
+	s = strings.NewReplacer(`\u0026`, "&", `\u002F`, "/", `\u002f`, "/", `\/`, "/", "&amp;", "&").Replace(s)
+	s = strings.TrimRight(s, `\"'`)
+	if m := reIOSAppID.FindStringSubmatch(s); m != nil {
+		return "https://apps.apple.com/app/id" + m[1]
+	}
+	if m := rePlayAppID.FindStringSubmatch(s); m != nil {
+		return "https://play.google.com/store/apps/details?id=" + m[1]
+	}
+	return s
+}

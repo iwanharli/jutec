@@ -61,6 +61,9 @@ var noiseDomains = map[string]bool{
 	"pages.dev": false, // cloudflare pages — judol sering pakai ini, jangan filter
 }
 
+// IsNoiseDomain: domain infrastruktur/platform umum yang bukan bukti keterkaitan (dipakai juga oleh sub-crawl).
+func IsNoiseDomain(domain string) bool { return isNoiseDomain(domain) }
+
 func isNoiseDomain(domain string) bool {
 	if domain == "" {
 		return true

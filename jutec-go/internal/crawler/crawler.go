@@ -120,6 +120,12 @@ func (c *Crawler) process(url string, dbKeywords []WeightedKeyword, depth int, m
 		return nil, err
 	}
 
+	// Halaman blokir/tantangan proteksi bot (Cloudflare dll.) bukan konten situs — menilainya akan
+	// membuat situs judol tampak bersih. Perlakukan sebagai gagal agar vonis sebelumnya tidak tertimpa.
+	if reason := botBlockReason(htmlContent); reason != "" {
+		return nil, fmt.Errorf("diblokir proteksi bot (%s) — konten situs tidak terbaca", reason)
+	}
+
 	// Widget chat mengirim pesan sambutan (berisi link alternatif/APK/Telegram) lewat WebSocket
 	// beberapa detik setelah halaman siap — tunggu sampai muncul, maks. 10 detik.
 	if capture.hasChatWidget() {
@@ -538,4 +544,32 @@ func dohResolverRules(ctx context.Context, rawURL string) (rules string, blocked
 	bare := strings.TrimPrefix(host, "www.")
 	log.Printf("  🛡️  [Crawler] %s diblokir DNS ISP → dibuka lewat IP asli %s (DoH)", host, ips[0])
 	return fmt.Sprintf("MAP %s %s, MAP www.%s %s", bare, ips[0], bare, ips[0]), true
+}
+
+// botBlockSignatures: penanda halaman blokir/tantangan dari layanan proteksi bot. Dicocokkan hanya
+// pada halaman pendek (< 60 KB) agar situs asli yang kebetulan menyebut kata-kata ini tidak ikut tertolak.
+var botBlockSignatures = []struct{ needle, reason string }{
+	{"attention required! | cloudflare", "Cloudflare"},
+	{"sorry, you have been blocked", "Cloudflare"},
+	{"cf-error-details", "Cloudflare"},
+	{"<title>just a moment...</title>", "Cloudflare challenge"},
+	{"challenges.cloudflare.com/turnstile", "Cloudflare Turnstile"},
+	{"cf-chl-", "Cloudflare challenge"},
+	{"checking your browser before accessing", "pemeriksaan browser"},
+	{"ddos protection by", "proteksi DDoS"},
+	{"_incapsula_resource", "Imperva"},
+	{"access denied</title>", "akses ditolak"},
+}
+
+func botBlockReason(html string) string {
+	if len(html) > 60_000 {
+		return ""
+	}
+	low := strings.ToLower(html)
+	for _, s := range botBlockSignatures {
+		if strings.Contains(low, s.needle) {
+			return s.reason
+		}
+	}
+	return ""
 }

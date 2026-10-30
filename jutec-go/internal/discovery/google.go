@@ -187,8 +187,33 @@ func (s *GoogleScraper) serpApiPage(keyword string, page int) ([]string, bool) {
 	return links, true
 }
 
+// maxPagesPerInstitution: batas halaman susupan per domain institusi dari satu keyword.
+const maxPagesPerInstitution = 3
+
+// IsInstitutionalHost: domain pemerintah, akademik, sekolah, desa, atau organisasi internasional —
+// mis. *.go.id, *.ac.id, *.sch.id, *.desa.id, *.edu, *.gov, *.int, *.edu.ua, *.ac.uk.
+func IsInstitutionalHost(host string) bool {
+	labels := strings.Split(strings.ToLower(strings.TrimSuffix(host, ".")), ".")
+	n := len(labels)
+	if n < 2 {
+		return false
+	}
+	switch labels[n-1] {
+	case "gov", "edu", "mil", "int":
+		return true
+	}
+	switch labels[n-2] {
+	case "gov", "edu", "ac", "sch", "mil":
+		return true
+	case "go", "desa":
+		return labels[n-1] == "id"
+	}
+	return false
+}
+
 func (s *GoogleScraper) cleanURLs(input []string) []string {
 	unique := make(map[string]bool)
+	perHost := map[string]int{}
 	var cleaned []string
 
 	for _, raw := range input {
@@ -209,10 +234,22 @@ func (s *GoogleScraper) cleanURLs(input []string) []string {
 		}
 
 		if !isIgnored {
-			domain := fmt.Sprintf("%s://%s", u.Scheme, u.Host)
-			if !unique[domain] {
-				unique[domain] = true
-				cleaned = append(cleaned, domain)
+			// Situs institusi (pemerintah/kampus/sekolah) yang muncul di pencarian judol hampir selalu
+			// berisi halaman judol SUSUPAN (situs dibobol) — berandanya bersih. Pertahankan URL halamannya.
+			target := fmt.Sprintf("%s://%s", u.Scheme, u.Host)
+			if IsInstitutionalHost(u.Hostname()) && u.Path != "" && u.Path != "/" {
+				if perHost[u.Hostname()] >= maxPagesPerInstitution {
+					continue
+				}
+				perHost[u.Hostname()]++
+				target = fmt.Sprintf("%s://%s%s", u.Scheme, u.Host, u.EscapedPath())
+				if u.RawQuery != "" {
+					target += "?" + u.RawQuery
+				}
+			}
+			if !unique[target] {
+				unique[target] = true
+				cleaned = append(cleaned, target)
 			}
 		}
 	}

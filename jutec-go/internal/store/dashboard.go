@@ -26,6 +26,7 @@ type RecentSite struct {
 	CreatedAt      string  `json:"created_at"`
 	Status         string  `json:"status"`
 	Lifecycle      string  `json:"lifecycle"`
+	Role           string  `json:"role"`
 	ArtifactCount  int     `json:"artifact_count"`
 	AppCount       int     `json:"app_count"`
 }
@@ -164,7 +165,7 @@ func (db *PostgresDB) GetRecentSites(ctx context.Context, f SiteFilter) ([]Recen
 		       s.last_scanned_at, s.created_at,
 		       CASE WHEN s.reach_status IN ('blocked_alive','blocked','nxdomain') THEN s.reach_status
 		            WHEN s.status = 'unreachable' THEN 'unreachable' WHEN s.offline_since IS NOT NULL THEN 'offline' ELSE 'active' END,
-		       site_lifecycle(s.reach_status, s.status, s.offline_since),
+		       site_lifecycle(s.reach_status, s.status, s.offline_since), COALESCE(s.role, ''),
 		       (SELECT COUNT(*) FROM site_artifacts sa WHERE sa.site_id = s.id) AS artifact_count,
 		       (SELECT COUNT(*) FROM site_apps sp WHERE sp.site_id = s.id) AS app_count,
 		       COUNT(*) OVER() AS total
@@ -183,7 +184,7 @@ func (db *PostgresDB) GetRecentSites(ctx context.Context, f SiteFilter) ([]Recen
 		var s RecentSite
 		var scanned, created *time.Time
 		if err := rows.Scan(&s.ID, &s.URL, &s.Priority, &s.Confidence, &s.IsGambling, &scanned, &created,
-			&s.Status, &s.Lifecycle, &s.ArtifactCount, &s.AppCount, &total); err != nil {
+			&s.Status, &s.Lifecycle, &s.Role, &s.ArtifactCount, &s.AppCount, &total); err != nil {
 			return nil, 0, err
 		}
 		if scanned != nil {

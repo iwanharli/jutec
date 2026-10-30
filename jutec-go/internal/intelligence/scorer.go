@@ -275,7 +275,8 @@ func Compute(analysis *crawler.AnalysisResult, domainRisk float64, rawURL string
 	if isGovEdu {
 		isGambling = hasGameProvider || hasStrongArtifact || hasTemplateMatch
 	} else {
-		isGambling = final >= 0.4 || hasStrongArtifact || hasHostnameSignal
+		// "Rekening" tanpa konten judi sama sekali (situs bank, berita keuangan) bukan bukti judol
+		isGambling = final >= 0.4 || (hasStrongArtifact && contentScore >= 0.2) || hasHostnameSignal
 	}
 	// High hanya untuk situs yang dinilai judol; sinyal kuat tanpa vonis judol (mis. berita
 	// pemberantasan judol di situs pemerintah) cukup Medium agar tetap ditinjau tanpa terlihat pasti judol.
