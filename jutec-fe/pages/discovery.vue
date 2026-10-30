@@ -318,10 +318,12 @@ onMounted(() => {
   if (q) { activeMode.value = 'analyze'; analyzeUrl.value = q; startAnalysis() }
   // Pintasan dari halaman detail situs (tidak langsung dijalankan — pengguna menekan Mulai)
   const mode = route.query.mode as string
+  if (modes.some(m => m.value === mode)) activeMode.value = mode
   if (mode === 'ct' && route.query.q) { activeMode.value = 'ct'; ctKeyword.value = route.query.q as string }
   if (mode === 'crawler' && route.query.domain) { activeMode.value = 'crawler'; isAuto.value = false; deepRoot.value = route.query.domain as string; deepDepth.value = 1 }
 })
 onUnmounted(() => clearInterval(timerInterval))
+watch(() => route.query.mode, m => { if (modes.some(x => x.value === m)) activeMode.value = m as string })
 
 // ── Discovery ──
 async function startDiscovery() {
