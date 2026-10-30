@@ -11,7 +11,7 @@ snapshot-*
 *.tar.gz
 /*.sql
 /*.csv
-evidence/
+/evidence/
 
 # ── Build & dependensi ──
 node_modules/
@@ -30,3 +30,6 @@ jutec-go/server
 .vscode/
 .idea/
 *.log
+
+# Laporan investigasi (berisi kontak/data operator)
+laporan/
