@@ -71,18 +71,26 @@ func (h *OverviewHandler) system() gin.H {
 					prev = &t
 				}
 			}
-			sys["scheduler"] = gin.H{"jobs": len(entries), "next_at": next, "last_at": prev}
+			// Daftar jadwal otomatis (jenis tugas, interval, kapan berikutnya) untuk ditampilkan apa adanya
+			list := []gin.H{}
+			for _, e := range entries {
+				item := gin.H{"type": e.Task.Type(), "spec": e.Spec, "next_at": e.Next}
+				if !e.Prev.IsZero() {
+					item["prev_at"] = e.Prev
+				}
+				list = append(list, item)
+			}
+			sys["scheduler"] = gin.H{"jobs": len(entries), "next_at": next, "last_at": prev, "entries": list}
 		}
 	}
 	// Kunci API terpasang (tanpa memperlihatkan nilainya). Tanpa kunci, sumber tsb nonaktif atau berkuota gratis kecil.
-	sys["api_keys"] = []gin.H{
-		{"name": "Serper (Google)", "set": os.Getenv("SERPER_API_KEY") != "", "required": true},
-		{"name": "SerpAPI (cadangan Google)", "set": os.Getenv("SERPAPI_API_KEY") != ""},
-		{"name": "URLScan", "set": os.Getenv("URLSCAN_API_KEY") != ""},
-		{"name": "VirusTotal", "set": os.Getenv("VIRUSTOTAL_API_KEY") != ""},
-		{"name": "LeakOSINT", "set": os.Getenv("LEAKOSINT_TOKEN") != ""},
-		{"name": "HackerTarget", "set": os.Getenv("HACKERTARGET_API_KEY") != "", "free_tier": true},
-		{"name": "TronGrid", "set": os.Getenv("TRONGRID_API_KEY") != "", "free_tier": true},
+	keys := []gin.H{}
+	for _, d := range store.APIKeyDefs {
+		if d.Group == "telegram" {
+			continue
+		}
+		keys = append(keys, gin.H{"name": d.Label, "set": os.Getenv(d.Env) != "", "required": d.Required, "free_tier": d.FreeTier})
 	}
+	sys["api_keys"] = keys
 	return sys
 }

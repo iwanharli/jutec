@@ -32,6 +32,10 @@ type SiteCore struct {
 	OfflineSince   *time.Time     `json:"offline_since"`
 	InternalPages  []string       `json:"internal_pages"`
 	AuthSurface    map[string]any `json:"auth_surface"`
+	Injection      map[string]any `json:"injection"` // crawler.Injection: tanda situs sah yang disusupi
+	TPListed       *bool          `json:"tp_listed"` // terdaftar di daftar blokir TrustPositif (nil = belum dicek)
+	TPListedSince  *time.Time     `json:"tp_listed_since"`
+	TPCheckedAt    *time.Time     `json:"tp_checked_at"`
 	WidgetLinks    []string       `json:"widget_links"`
 	AppPromo       bool           `json:"app_promo"`
 	AppPromoEvid   []string       `json:"app_promo_evidence"`
@@ -45,6 +49,7 @@ type SiteCore struct {
 	BlockedSince   *time.Time     `json:"blocked_since"`
 	Lifecycle      string         `json:"lifecycle"` // active | blocked_alive | uncertain | inactive (lihat site_lifecycle)
 	Role           *string        `json:"role"`      // operator (situs utama) | landing (pintu masuk) | null
+	Category       string         `json:"category"`  // kategori yang sama dengan kolom "Jenis" di tabel (lihat siteCategorySQL)
 	EntryTargets   []string       `json:"entry_targets"`
 	RevivedAt      *time.Time     `json:"revived_at"`
 }
@@ -267,14 +272,14 @@ func (db *PostgresDB) GetSiteDetail(ctx context.Context, siteID int) (*SiteDetai
 		       app_promo, app_promo_evidence, app_promo_platforms, internal_pages, auth_surface, widget_links,
 		       verified_status, verified_by, verified_at, verified_note,
 		       reach_status, reach_checked_at, blocked_since,
-		       site_lifecycle(reach_status, status, offline_since), revived_at, role, entry_targets
-		FROM sites WHERE id = $1`, siteID).Scan(
+		       site_lifecycle(reach_status, status, offline_since), revived_at, role, entry_targets, `+siteCategorySQL+`, injection, tp_listed, tp_listed_since, tp_checked_at
+		FROM sites s WHERE id = $1`, siteID).Scan(
 		&s.ID, &s.URL, &s.Priority, &s.Confidence, &s.IsGambling,
 		&s.Status, &s.SimHash, &s.RescanCount, &s.CreatedAt, &s.LastScannedAt, &s.OfflineSince,
 		&s.AppPromo, &s.AppPromoEvid, &s.AppPromoPlat, &s.InternalPages, &s.AuthSurface, &s.WidgetLinks,
 		&s.VerifiedStatus, &s.VerifiedBy, &s.VerifiedAt, &s.VerifiedNote,
 		&s.ReachStatus, &s.ReachCheckedAt, &s.BlockedSince,
-		&s.Lifecycle, &s.RevivedAt, &s.Role, &s.EntryTargets)
+		&s.Lifecycle, &s.RevivedAt, &s.Role, &s.EntryTargets, &s.Category, &s.Injection, &s.TPListed, &s.TPListedSince, &s.TPCheckedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -423,6 +428,9 @@ type RelatedSite struct {
 	SharedCount int      `json:"shared_count"` // jumlah atribut yang sama dengan situs pusat
 	SharedKinds []string `json:"shared_kinds"` // jenis atribut yang sama (unik)
 	Strength    float64  `json:"strength"`     // skor keterkaitan berbobot (lihat kindWeight)
+	Category    string   `json:"category"`     // lihat siteCategorySQL
+	Lifecycle   string   `json:"lifecycle"`
+	Verified    string   `json:"verified"`     // judol | bukan_judol | "" (belum diverifikasi analis)
 }
 
 type SiteRelations struct {
@@ -492,6 +500,30 @@ func (db *PostgresDB) GetSiteRelations(ctx context.Context, siteID, perAttr, max
 		rel.Attributes = append(rel.Attributes, ra)
 	}
 
+	if len(related) > 0 {
+		ids := make([]int, 0, len(related))
+		for id := range related {
+			ids = append(ids, id)
+		}
+		rows, err := db.Pool.Query(ctx, `
+			SELECT s.id, `+siteCategorySQL+`, site_lifecycle(s.reach_status, s.status, s.offline_since),
+			       COALESCE(s.verified_status, '')
+			FROM sites s WHERE s.id = ANY($1)`, ids)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var id int
+			var cat, life string
+			var ver string
+			if err := rows.Scan(&id, &cat, &life, &ver); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			related[id].Category, related[id].Lifecycle, related[id].Verified = cat, life, ver
+		}
+		rows.Close()
+	}
 	for _, r := range related {
 		rel.Related = append(rel.Related, *r)
 	}

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"os"
 	"context"
 	"encoding/json"
 	"time"
@@ -126,7 +127,7 @@ func (db *PostgresDB) ReverseAnalyticsForSite(ctx context.Context, siteID int) (
 func (db *PostgresDB) SiteTRONAddresses(ctx context.Context, siteID int) ([]string, error) {
 	rows, err := db.Pool.Query(ctx, `
 		SELECT x.value FROM site_artifacts j JOIN artifacts x ON x.id = j.artifact_id
-		WHERE j.site_id = $1 AND x.type = 'Crypto' AND x.value ~ '^T[1-9A-HJ-NP-Za-km-z]{33}$'`, siteID)
+		WHERE j.site_id = $1 AND x.type = 'Crypto' AND (x.value ~ '^T[1-9A-HJ-NP-Za-km-z]{33}$' OR x.value ~* '^0x[0-9a-f]{40}$')`, siteID)
 	if err != nil {
 		return nil, err
 	}
@@ -170,9 +171,9 @@ func (db *PostgresDB) SitesByCryptoAddress(ctx context.Context, addresses []stri
 		return out, nil
 	}
 	rows, err := db.Pool.Query(ctx, `
-		SELECT x.value, s.id, s.url, COALESCE(s.priority, 'Low'), COALESCE(s.confidence, 0), COALESCE(s.is_gambling, false)
+		SELECT CASE WHEN x.value ~* '^0x' THEN lower(x.value) ELSE x.value END, s.id, s.url, COALESCE(s.priority, 'Low'), COALESCE(s.confidence, 0), COALESCE(s.is_gambling, false)
 		FROM artifacts x JOIN site_artifacts j ON j.artifact_id = x.id JOIN sites s ON s.id = j.site_id
-		WHERE x.type = 'Crypto' AND x.value = ANY($1) AND s.id <> $2`, addresses, exceptSite)
+		WHERE x.type = 'Crypto' AND (x.value = ANY($1) OR lower(x.value) = ANY($1)) AND s.id <> $2`, addresses, exceptSite)
 	if err != nil {
 		return nil, err
 	}
@@ -184,6 +185,65 @@ func (db *PostgresDB) SitesByCryptoAddress(ctx context.Context, addresses []stri
 			return nil, err
 		}
 		out[addr] = append(out[addr], r)
+	}
+	return out, rows.Err()
+}
+
+// AutoReverseTargets: ID GA/GTM/AdSense di situs judol yang masih beroperasi dan belum ditanyakan ke
+// HackerTarget dalam 7 hari — untuk putaran otomatis (dibatasi agar kuota gratis harian cukup).
+func (db *PostgresDB) AutoReverseTargets(ctx context.Context, limit int) ([]string, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT DISTINCT x.value FROM tracking_ids x
+		JOIN site_tracking j ON j.tracking_id = x.id JOIN sites s ON s.id = j.site_id
+		WHERE x.platform = ANY($1) AND s.is_gambling
+		  AND site_lifecycle(s.reach_status, s.status, s.offline_since) <> 'inactive'
+		  AND NOT EXISTS (SELECT 1 FROM reverse_analytics_runs r WHERE r.tracking_value = x.value
+		                  AND r.error IS NULL AND r.fetched_at > NOW() - INTERVAL '7 days')
+		LIMIT $2`, AnalyticsPlatforms, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var v string
+		if rows.Scan(&v) == nil {
+			out = append(out, v)
+		}
+	}
+	return out, rows.Err()
+}
+
+// UnknownDomains menyaring domain yang belum pernah dianalisis Jutec.
+func (db *PostgresDB) UnknownDomains(ctx context.Context, domains []string) []string {
+	var out []string
+	for _, d := range domains {
+		var n int
+		db.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM sites WHERE lower(rtrim(url, '/')) IN ('https://' || $1, 'http://' || $1, 'https://www.' || $1)`, d).Scan(&n)
+		if n == 0 {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// AutoCryptoTargets: alamat USDT-TRC20 di situs judol yang profilnya belum ada atau lebih tua dari 24 jam.
+func (db *PostgresDB) AutoCryptoTargets(ctx context.Context, limit int) ([]string, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT DISTINCT x.value FROM site_artifacts j JOIN artifacts x ON x.id = j.artifact_id JOIN sites s ON s.id = j.site_id
+		WHERE s.is_gambling AND x.type = 'Crypto' AND (x.value ~ '^T[1-9A-HJ-NP-Za-km-z]{33}$' OR (x.value ~* '^0x[0-9a-f]{40}$' AND $2))
+		  AND NOT EXISTS (SELECT 1 FROM crypto_profiles p WHERE p.address = x.value AND p.fetched_at > NOW() - INTERVAL '24 hours')
+		LIMIT $1`, limit, os.Getenv("ETHERSCAN_API_KEY") != "")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var v string
+		if rows.Scan(&v) == nil {
+			out = append(out, v)
+		}
 	}
 	return out, rows.Err()
 }

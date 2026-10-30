@@ -28,6 +28,7 @@ type AnalysisResult struct {
 	InternalPages  []string              `json:"internal_pages,omitempty"` // halaman internal yang ikut dianalisis
 	AuthSurface    *AuthSurface          `json:"auth_surface,omitempty"`   // peta login & pendaftaran
 	WidgetLinks    []string              `json:"widget_links,omitempty"`   // link dari pesan sambutan widget chat
+	Injection      *Injection            `json:"injection,omitempty"`      // tanda situs sah yang disusupi (cloaking, link tersembunyi)
 }
 
 type WeightedKeyword struct {

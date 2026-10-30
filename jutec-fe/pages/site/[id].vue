@@ -27,14 +27,17 @@
           <div class="min-w-0">
             <div class="flex flex-wrap items-center gap-2">
               <h1 class="text-2xl lg:text-3xl font-semibold text-white break-words">{{ host }}</h1>
-              <UBadge :color="site.is_gambling ? 'rose' : 'emerald'" variant="subtle">{{ site.is_gambling ? 'Situs Judol' : 'Normal' }}</UBadge>
+              <UTooltip v-if="SITE_CATEGORY[site.category]" :text="SITE_CATEGORY[site.category].desc">
+                <span class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium ring-1" :class="SITE_CATEGORY[site.category].tag">
+                  <UIcon :name="SITE_CATEGORY[site.category].icon" class="w-3.5 h-3.5" />{{ SITE_CATEGORY[site.category].label }}
+                </span>
+              </UTooltip>
+              <UBadge v-else :color="site.is_gambling ? 'rose' : 'emerald'" variant="subtle">{{ site.is_gambling ? 'Situs Judol' : 'Normal' }}</UBadge>
               <PriorityBadge :priority="site.priority" />
               <VerifyControl :site="site" @updated="load(String(route.params.id))" />
               <UTooltip v-if="reachMeta" :text="reachTip">
                 <UBadge :color="reachMeta.color" variant="subtle"><UIcon :name="reachMeta.icon" class="w-3.5 h-3.5 mr-1" />{{ reachMeta.label }}</UBadge>
               </UTooltip>
-              <UBadge v-if="site.role === 'operator'" color="rose" variant="solid"><UIcon name="i-lucide-castle" class="w-3.5 h-3.5 mr-1" />Situs utama</UBadge>
-              <UBadge v-else-if="site.role === 'landing'" color="sky" variant="subtle"><UIcon name="i-lucide-door-open" class="w-3.5 h-3.5 mr-1" />Landing page</UBadge>
               <UBadge v-if="site.app_promo" color="amber" variant="subtle"><UIcon name="i-lucide-smartphone" class="w-3.5 h-3.5 mr-1" />Promosi APK</UBadge>
               <UBadge v-if="site.status && site.status !== 'active'" color="amber" variant="subtle">{{ site.status }}</UBadge>
             </div>
@@ -64,7 +67,7 @@
 
           <!-- Investigasi lanjutan -->
           <UDropdown :items="investigateItems" :popper="{ placement: 'bottom-end' }" :ui="{ width: 'w-80' }">
-            <UButton color="gray" variant="soft" icon="i-lucide-microscope" label="Investigasi" trailing-icon="i-lucide-chevron-down"
+            <UButton color="gray" variant="ghost" icon="i-lucide-play" label="Jalankan manual" trailing-icon="i-lucide-chevron-down"
               :loading="deepLoading || mirrorLoading" />
             <template #item="{ item }">
               <UIcon :name="item.icon" class="w-5 h-5 shrink-0 text-slate-400 self-start mt-0.5" />
@@ -90,6 +93,9 @@
       <UAlert v-else-if="revivedRecently" icon="i-lucide-rotate-ccw" color="rose" variant="subtle"
         :title="`Situs hidup lagi ${fmtDate(site.revived_at)}`"
         description="Sebelumnya sudah tidak aktif — operator kemungkinan memakai ulang domain lama. Pertimbangkan scan ulang & ambil bukti baru." />
+
+      <SiteAutomationStrip :site="site" :detail="detail" :evidence="evidence" :apks="apks" :tg-accounts="tgAccounts"
+        :identities="identities" :wayback="wayback" :rev-results="revResults" :wallets="wallets" />
 
       <!-- ── KPI strip ── -->
       <div class="grid grid-cols-2 md:grid-cols-3 2xl:grid-cols-6 gap-3">
@@ -324,31 +330,63 @@
           <template #header>
             <div class="flex items-center gap-3">
               <div class="card-icon bg-indigo-500/10 ring-indigo-500/25"><UIcon name="i-lucide-waypoints" class="w-[18px] h-[18px] text-indigo-400" /></div>
-              <div class="flex-1 min-w-0"><h2 class="card-title">Situs Terkait</h2><p class="card-desc">Urut kekuatan bukti: operator & artefak &gt; tracking & SSL &gt; link, IP & NS</p></div>
-              <UBadge color="gray" variant="subtle">{{ relations?.related.length ?? 0 }}</UBadge>
+              <div class="flex-1 min-w-0"><h2 class="card-title">Situs Terkait</h2><p class="card-desc">Situs lain yang berbagi atribut dengan situs ini</p></div>
+              <div v-if="relSummary.total" class="flex items-center gap-1">
+                <UTooltip v-for="t in relSummary.tiers" :key="t.key" :text="t.hint">
+                  <span class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs tabular-nums ring-1" :class="t.cls">{{ t.n }} {{ t.label }}</span>
+                </UTooltip>
+              </div>
+            </div>
+            <div v-if="relSummary.total" class="flex items-center gap-1 mt-3">
+              <UButton v-for="f in relFilters" :key="f.value" size="2xs" :color="relFilter === f.value ? 'primary' : 'gray'" :variant="relFilter === f.value ? 'soft' : 'ghost'" @click="relFilter = f.value">
+                {{ f.label }} <span class="tabular-nums opacity-70">{{ f.n }}</span>
+              </UButton>
             </div>
           </template>
-          <div v-if="!relations" class="px-5 py-4 space-y-2"><USkeleton v-for="i in 8" :key="i" class="h-10 w-full" /></div>
+          <div v-if="!relations" class="px-5 py-4 space-y-2"><USkeleton v-for="i in 6" :key="i" class="h-14 w-full" /></div>
           <div v-else-if="!relations.related.length" class="empty-state !py-14">
             <div class="empty-icon"><UIcon name="i-lucide-unlink" class="w-6 h-6" /></div>
             <p class="text-sm">Belum ada situs lain yang berbagi atribut.</p>
+            <p class="text-xs text-slate-500 mt-1">Keterkaitan muncul otomatis saat situs lain dengan rekening, kontak, tracking ID atau infrastruktur yang sama ditemukan.</p>
           </div>
+          <div v-else-if="!relList.length" class="empty-state !py-14"><p class="text-sm">Tidak ada situs untuk filter ini.</p></div>
           <div v-else class="absolute inset-0 overflow-y-auto divide-y divide-slate-800/60">
-            <div v-for="(r, i) in relations.related" :key="r.id" class="group/rel flex items-start gap-3 px-5 py-3 hover:bg-slate-800/40">
-              <span class="w-5 text-[13px] tabular-nums text-slate-600 pt-1">{{ Number(i) + 1 }}</span>
-              <div class="flex-1 min-w-0">
-                <NuxtLink :to="`/site/${r.id}`" class="text-sm text-slate-100 hover:text-primary-300 break-words leading-snug">{{ stripScheme(r.url) }}</NuxtLink>
-                <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-1">
-                  <span v-for="k in r.shared_kinds" :key="k" class="inline-flex items-center gap-1 text-[13px] text-slate-400">
-                    <span class="w-1.5 h-1.5 rounded-full" :style="{ background: kindMeta[k]?.color }" />{{ kindMeta[k]?.label ?? k }}
-                  </span>
-                  <span class="text-[13px]" :class="r.is_gambling ? 'text-rose-400' : 'text-slate-500'">· {{ r.is_gambling ? 'Judol' : 'Normal' }}</span>
+            <div v-for="r in relList" :key="r.id" class="group/rel px-5 py-3.5 hover:bg-slate-800/30">
+              <div class="flex items-start gap-3">
+                <UTooltip :text="relTier(relLevel(r)).hint" class="shrink-0 pt-0.5">
+                  <div class="flex flex-col items-center w-11">
+                    <div class="flex gap-0.5">
+                      <span v-for="n in 3" :key="n" class="w-2.5 h-1.5 rounded-sm" :class="n <= relTier(relLevel(r)).bars ? relTier(relLevel(r)).bar : 'bg-slate-700'" />
+                    </div>
+                    <span class="text-[11px] mt-1" :class="relTier(relLevel(r)).text">{{ relTier(relLevel(r)).label }}</span>
+                  </div>
+                </UTooltip>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <NuxtLink :to="`/site/${r.id}`" class="text-sm font-medium text-slate-100 hover:text-primary-300 break-all leading-snug">{{ stripScheme(r.url) }}</NuxtLink>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
+                    <span v-if="SITE_CATEGORY[r.category]" class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium ring-1" :class="SITE_CATEGORY[r.category].tag">
+                      <UIcon :name="SITE_CATEGORY[r.category].icon" class="w-3 h-3" />{{ SITE_CATEGORY[r.category].label }}
+                    </span>
+                    <span v-if="r.is_gambling" class="text-[11px] tabular-nums" :class="r.priority === 'High' ? 'text-rose-400' : r.priority === 'Medium' ? 'text-amber-400' : 'text-slate-400'">{{ r.priority }} · {{ Math.round(r.confidence * 100) }}%</span>
+                    <span v-if="r.verified === 'judol'" class="inline-flex items-center gap-0.5 text-[11px] text-emerald-400"><UIcon name="i-lucide-badge-check" class="w-3 h-3" />Terverifikasi</span>
+                    <span v-else-if="r.verified === 'bukan_judol'" class="text-[11px] text-slate-400">Ditolak analis</span>
+                    <span v-if="r.lifecycle === 'inactive'" class="inline-flex items-center gap-0.5 text-[11px] text-slate-500"><UIcon name="i-lucide-power-off" class="w-3 h-3" />Tidak aktif</span>
+                  </div>
+                  <div class="flex flex-wrap gap-1 mt-2">
+                    <UTooltip v-for="v in relShared(r.id).slice(0, 4)" :key="v.kind + v.value" :text="`${kindMeta[v.kind]?.label ?? v.kind}: ${v.value}`">
+                      <span class="inline-flex items-center gap-1 max-w-[220px] rounded bg-slate-800/70 px-1.5 py-0.5 text-[11px] text-slate-300 ring-1 ring-slate-700/60">
+                        <span class="w-1.5 h-1.5 rounded-full shrink-0" :style="{ background: kindMeta[v.kind]?.color }" />
+                        <span class="text-slate-500 shrink-0">{{ kindMeta[v.kind]?.label ?? v.kind }}</span>
+                        <span class="mono truncate">{{ v.label && v.label !== '1' && v.kind !== 'link' ? v.label : v.value }}</span>
+                      </span>
+                    </UTooltip>
+                    <span v-if="relShared(r.id).length > 4" class="text-[11px] text-slate-500 self-center">+{{ relShared(r.id).length - 4 }} lainnya</span>
+                  </div>
                 </div>
-              </div>
-              <div class="flex flex-col items-end gap-1 shrink-0">
-                <UBadge :color="r.strength >= 4 ? 'rose' : r.strength >= 2 ? 'amber' : 'gray'" variant="subtle" size="xs">{{ r.shared_count }} sama</UBadge>
-                <div class="flex gap-0.5 opacity-60 group-hover/rel:opacity-100">
-                  <UTooltip text="Detail"><UButton :to="`/site/${r.id}`" size="2xs" color="gray" variant="ghost" icon="i-lucide-panel-right-open" /></UTooltip>
+                <div class="flex gap-0.5 shrink-0 opacity-50 group-hover/rel:opacity-100">
+                  <UTooltip text="Buka detail"><UButton :to="`/site/${r.id}`" size="2xs" color="gray" variant="ghost" icon="i-lucide-panel-right-open" /></UTooltip>
                   <UTooltip text="Analisis ulang"><UButton :to="`/discovery?url=${encodeURIComponent(r.url)}`" size="2xs" color="gray" variant="ghost" icon="i-lucide-scan-line" /></UTooltip>
                 </div>
               </div>
@@ -356,6 +394,8 @@
           </div>
         </UCard>
       </div>
+
+      <SiteInjectionCard v-if="tab === 'ringkasan' && site.injection?.detected" :inj="site.injection" />
 
       <SiteRoleCard v-if="tab === 'ringkasan' && detail.role_links" :role="site.role" :links="detail.role_links" />
 
@@ -1022,7 +1062,7 @@
               <UBadge v-if="reachMeta" :color="reachMeta.color" variant="subtle">{{ reachMeta.label }}</UBadge>
             </div>
           </template>
-          <p v-if="!reachHistory.length" class="text-sm text-slate-500">Belum pernah dicek — pengecekan berjalan otomatis setelah backend diperbarui.</p>
+          <p v-if="!reachHistory.length" class="text-sm text-slate-500">Belum pernah dicek — sistem mengecek status situs secara otomatis secara berkala.</p>
           <ul v-else class="divide-y divide-slate-800/60 -my-2">
             <li v-for="(e, i) in reachHistory" :key="i" class="py-2 flex items-center gap-3 text-sm">
               <span class="w-2 h-2 rounded-full shrink-0" :class="REACH[e.status]?.dot" />
@@ -1111,6 +1151,51 @@ const views = [
   { value: 'graph' as const, label: 'Graf', icon: 'i-lucide-waypoints' },
   { value: 'tree' as const,  label: 'Tree', icon: 'i-lucide-list-tree' },
 ]
+
+// ── Situs terkait: tingkat kekuatan, nilai atribut yang sama, filter ──
+// Tingkat ditentukan jenis atribut terkuat yang dibagi (bukan jumlah): 10 link sama tetap lemah
+const relLevel = (r: any) => Math.max(0, ...(r.shared_kinds ?? []).map((k: string) => kindWeight[k] ?? 0))
+const relTier = (st: number) => st >= 4
+  ? { key: 'kuat', label: 'Kuat', bars: 3, bar: 'bg-rose-500', text: 'text-rose-400', cls: 'bg-rose-500/10 text-rose-300 ring-rose-500/25', hint: 'Kuat — berbagi operator/artefak/tracking: kemungkinan besar operator sama' }
+  : st >= 2
+    ? { key: 'sedang', label: 'Sedang', bars: 2, bar: 'bg-amber-500', text: 'text-amber-400', cls: 'bg-amber-500/10 text-amber-300 ring-amber-500/25', hint: 'Sedang — berbagi SSL/aplikasi/beberapa infrastruktur' }
+    : { key: 'lemah', label: 'Lemah', bars: 1, bar: 'bg-slate-400', text: 'text-slate-400', cls: 'bg-slate-500/10 text-slate-300 ring-slate-500/25', hint: 'Lemah — hanya link, IP atau nameserver yang sama' }
+const relSharedMap = computed(() => {
+  const m: Record<number, any[]> = {}
+  for (const a of relations.value?.attributes ?? []) {
+    for (const s of a.sites ?? []) (m[s.id] ??= []).push(a)
+  }
+  for (const id in m) m[id].sort((x, y) => (kindWeight[y.kind] ?? 0) - (kindWeight[x.kind] ?? 0))
+  return m
+})
+const relShared = (id: number) => relSharedMap.value[id] ?? []
+const kindWeight: Record<string, number> = { operator: 5, artifact: 4, fingerprint: 4, tracking: 4, ssl: 3, app: 3, txt: 2, link: 1, ip: 1, ns: 0.5 }
+const relFilter = ref<'all' | 'judol' | 'kuat' | 'aktif'>('all')
+const relPredicates: Record<string, (r: any) => boolean> = {
+  all: () => true,
+  judol: r => r.is_gambling,
+  kuat: r => relLevel(r) >= 4,
+  aktif: r => r.lifecycle !== 'inactive',
+}
+const relList = computed(() => (relations.value?.related ?? []).filter(relPredicates[relFilter.value])
+  .sort((a: any, b: any) => relLevel(b) - relLevel(a) || b.strength - a.strength))
+const relFilters = computed(() => {
+  const all = relations.value?.related ?? []
+  return [
+    { value: 'all' as const, label: 'Semua' },
+    { value: 'judol' as const, label: 'Judol' },
+    { value: 'kuat' as const, label: 'Kuat' },
+    { value: 'aktif' as const, label: 'Aktif' },
+  ].map(f => ({ ...f, n: all.filter(relPredicates[f.value]).length }))
+})
+const relSummary = computed(() => {
+  const all = relations.value?.related ?? []
+  const tiers = ['kuat', 'sedang', 'lemah'].map(k => {
+    const items = all.filter((r: any) => relTier(relLevel(r)).key === k)
+    return { ...relTier(k === 'kuat' ? 4 : k === 'sedang' ? 3 : 0), n: items.length }
+  }).filter(t => t.n)
+  return { total: all.length, tiers }
+})
 
 const kindMeta: Record<string, { label: string; color: string }> = {
   operator: { label: 'Operator',    color: '#f43f5e' },

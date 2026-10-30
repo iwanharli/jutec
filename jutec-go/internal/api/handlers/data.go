@@ -59,6 +59,7 @@ func (h *DataHandler) GetSites(c *gin.Context) {
 		Priority: priority, Query: q, Limit: limit, Offset: offset,
 		Status:       c.Query("status"),
 		Lifecycle:    c.Query("lifecycle"),
+		Category:     c.Query("category"),
 		ArtifactType: c.Query("artifact_type"),
 		HasApp:       c.Query("has_app") == "true",
 		Sort:         c.DefaultQuery("sort", "last_scanned_at"),
@@ -78,7 +79,7 @@ func (h *DataHandler) GetSites(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"results": sites, "total": total})
+	c.JSON(http.StatusOK, gin.H{"results": sites, "total": total, "category_counts": h.PG.SiteCategoryCounts(c.Request.Context(), f.Lifecycle)})
 }
 
 func (h *DataHandler) GetApps(c *gin.Context) {

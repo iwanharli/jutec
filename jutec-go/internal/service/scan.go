@@ -516,6 +516,9 @@ func (s *ScanService) persistToPostgres(ctx context.Context, url string, analysi
 			log.Printf("⚠️  [Postgres] Failed to save auth surface: %v", err)
 		}
 	}
+	if err := s.PG.SaveInjection(dbCtx, siteID, analysis.Injection, analysis.Injection != nil && analysis.Injection.Detected); err != nil {
+		log.Printf("⚠️  [Postgres] Failed to save injection: %v", err)
+	}
 	if err := s.PG.SaveInternalPages(dbCtx, siteID, analysis.InternalPages); err != nil {
 		log.Printf("⚠️  [Postgres] Failed to save internal pages: %v", err)
 	}

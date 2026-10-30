@@ -18,15 +18,15 @@
             <NuxtLink v-if="item.to" :to="item.to" class="nav-item" :class="isActive(item.to) ? 'nav-on' : 'nav-off'">
               <UIcon :name="item.icon" class="w-4 h-4" />{{ item.label }}
             </NuxtLink>
-            <UDropdown v-else :items="[item.children!]" :popper="{ placement: 'bottom-start' }" :ui="{ width: 'w-72' }">
+            <UDropdown v-else :items="[menuItems(item.children!)]" :popper="{ placement: 'bottom-start' }" :ui="{ width: 'w-72' }">
               <button type="button" class="nav-item" :class="groupActive(item) ? 'nav-on' : 'nav-off'">
                 <UIcon :name="item.icon" class="w-4 h-4" />{{ item.label }}
                 <UIcon name="i-lucide-chevron-down" class="w-3.5 h-3.5 opacity-60" />
               </button>
               <template #item="{ item: child }">
-                <UIcon :name="child.icon" class="w-4 h-4 shrink-0 self-start mt-0.5" :class="isActive(child.to) ? 'text-primary-300' : 'text-slate-400'" />
+                <UIcon :name="child.icon" class="w-4 h-4 shrink-0 self-start mt-0.5" :class="isActive(child.path) ? 'text-primary-300' : 'text-slate-400'" />
                 <div class="text-left min-w-0">
-                  <p class="text-sm font-medium" :class="isActive(child.to) ? 'text-primary-200' : 'text-slate-100'">{{ child.label }}</p>
+                  <p class="text-sm font-medium" :class="isActive(child.path) ? 'text-primary-200' : 'text-slate-100'">{{ child.label }}</p>
                   <p class="text-xs text-slate-500 whitespace-normal leading-snug">{{ child.desc }}</p>
                 </div>
               </template>
@@ -56,13 +56,13 @@
             </template>
           </UPopover>
           <!-- Sistem: konfigurasi & log — jarang dipakai, cukup di balik ikon -->
-          <UDropdown :items="[system]" :popper="{ placement: 'bottom-end' }" :ui="{ width: 'w-72' }">
+          <UDropdown :items="[menuItems(system)]" :popper="{ placement: 'bottom-end' }" :ui="{ width: 'w-72' }">
             <UButton icon="i-lucide-settings" color="gray" variant="ghost" size="lg" aria-label="Sistem"
               :class="system.some(x => isActive(x.to)) ? 'text-primary-300 bg-primary-500/10' : ''" />
             <template #item="{ item: child }">
-              <UIcon :name="child.icon" class="w-4 h-4 shrink-0 self-start mt-0.5" :class="isActive(child.to) ? 'text-primary-300' : 'text-slate-400'" />
+              <UIcon :name="child.icon" class="w-4 h-4 shrink-0 self-start mt-0.5" :class="isActive(child.path) ? 'text-primary-300' : 'text-slate-400'" />
               <div class="text-left min-w-0">
-                <p class="text-sm font-medium" :class="isActive(child.to) ? 'text-primary-200' : 'text-slate-100'">{{ child.label }}</p>
+                <p class="text-sm font-medium" :class="isActive(child.path) ? 'text-primary-200' : 'text-slate-100'">{{ child.label }}</p>
                 <p class="text-xs text-slate-500 whitespace-normal leading-snug">{{ child.desc }}</p>
               </div>
             </template>
@@ -76,6 +76,7 @@
     </main>
 
     <UNotifications />
+    <ConfirmDialog />
   </div>
 </template>
 
@@ -100,12 +101,11 @@ const nav: NavItem[] = [
     { label: 'Analisis Situs', to: '/discovery?mode=analyze', icon: 'i-lucide-scan-line', desc: 'Scan mendalam & skor risiko satu domain' },
   ] },
   { label: 'Verifikasi', to: '/verifikasi', icon: 'i-lucide-badge-check' },
-  { label: 'Data', icon: 'i-lucide-database', children: [
-    { label: 'Repository', to: '/repository', icon: 'i-lucide-database', desc: 'Situs, rekening, tracking, aplikasi, link & operator' },
-    { label: 'Network Graph', to: '/network', icon: 'i-lucide-waypoints', desc: 'Peta keterkaitan antar situs & atribut' },
-  ] },
+  { label: 'Repository', to: '/repository', icon: 'i-lucide-database' },
+  { label: 'Network Graph', to: '/network', icon: 'i-lucide-waypoints' },
   { label: 'Investigasi', icon: 'i-lucide-microscope', children: [
     { label: 'Reverse Lookup', to: '/reverse-lookup', icon: 'i-lucide-scan-search', desc: 'Cari situs lain dari IP, rekening, tracking ID, dll.' },
+    { label: 'Form Pendaftaran', to: '/form-daftar', icon: 'i-lucide-clipboard-list', desc: 'Field, bank & pola form daftar situs judol valid' },
     { label: 'Leak / Identitas', to: '/leak', icon: 'i-lucide-fingerprint', desc: 'Pemilik nomor HP & NIK dari data bocoran' },
   ] },
 ]
@@ -117,6 +117,12 @@ const system: NavChild[] = [
 ]
 
 // Tautan boleh berisi ?mode= — cocokkan path, dan mode bila ada
+// Item dropdown tanpa `to`: link ke halaman yang sama (beda ?mode=) dianggap aktif semua oleh ULink
+// sehingga gayanya berubah & klik tidak bernavigasi. Navigasi & penanda aktif ditangani sendiri.
+function menuItems(children: NavChild[]) {
+  return children.map(c => ({ ...c, to: undefined, path: c.to, class: isActive(c.to) ? 'bg-primary-500/10' : '', click: () => navigateTo(c.to) }))
+}
+
 function isActive(to: string) {
   const [path, qs] = to.split('?')
   if (path === '/') return route.path === '/'

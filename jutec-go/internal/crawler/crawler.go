@@ -140,6 +140,9 @@ func (c *Crawler) process(url string, dbKeywords []WeightedKeyword, depth int, m
 		log.Printf("  ↪️  [Redirect JS/Meta] Final: %s", finalURL)
 	}
 
+	// Link judol tersembunyi (SEO spam) — dihitung di browser karena butuh CSS terhitung
+	hiddenSpam := detectHiddenSpam(taskCtx)
+
 	// 3. Analisis konten
 	networkSignals := capture.analyze()
 	result := c.Analyzer.Analyze(htmlContent, dbKeywords, networkSignals)
@@ -157,6 +160,25 @@ func (c *Crawler) process(url string, dbKeywords []WeightedKeyword, depth int, m
 	result.SimHash = ComputeSimHash(htmlContent)
 	result.AppPromo = DetectAppPromo(htmlContent)
 	c.mergeWidgetLinks(result, capture, finalURL)
+
+	// 3b. Penyusupan: cloaking (konten judol hanya untuk Googlebot / pengunjung dari Google) — dicek bila
+	// versi pengunjung belum jelas judol. Versi cloaked digabung agar kata kunci & rekeningnya ikut tercatat.
+	var inj *Injection
+	if mobilePass && result.Confidence < 0.7 {
+		var cloaked *AnalysisResult
+		inj, cloaked = c.checkCloaking(ctx, finalURL, result, dbKeywords)
+		if cloaked != nil {
+			result.FoundKeywords = mergeUnique(result.FoundKeywords, cloaked.FoundKeywords)
+			result.Artifacts = append(result.Artifacts, cloaked.Artifacts...)
+			if cloaked.Confidence > result.Confidence {
+				result.Confidence = cloaked.Confidence
+			}
+		}
+	}
+	result.Injection = finalizeInjection(inj, hiddenSpam)
+	if result.Injection != nil && result.Injection.Detected {
+		log.Printf("  🕳️  [Injection] %v · tersembunyi %d/%d · cloak %q", result.Injection.Signals, result.Injection.HiddenLinks, result.Injection.JudolLinks, result.Injection.CloakVia)
+	}
 
 	// 4. Pass kedua dengan profil HP Android: tombol APK / halaman "versi mobile" sering hanya
 	// muncul di HP. Non-fatal — kegagalan di sini tidak membatalkan hasil desktop.

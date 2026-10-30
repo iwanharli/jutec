@@ -63,7 +63,7 @@ var trustedDomains = map[string]bool{
 // menjadi operator judol (meski kontennya mungkin mengandung kata judi).
 var trustedTLDSuffixes = []string{
 	// Indonesia
-	".go.id", ".ac.id", ".gov.id", ".mil.id", ".sch.id",
+	".go.id", ".ac.id", ".gov.id", ".mil.id", ".sch.id", ".desa.id",
 	// International government
 	".gov", ".gov.au", ".gov.uk", ".gov.ph", ".gov.co", ".gov.sg",
 	".gov.my", ".gov.in", ".gov.br", ".gouv.fr",
@@ -229,8 +229,18 @@ func Compute(analysis *crawler.AnalysisResult, domainRisk float64, rawURL string
 	hasTemplateMatch := simHashBoost > 0
 	hasEnrichmentSignal := enrichmentBoost >= 0.20
 	hasHostnameSignal := hostnameScore > 0
+	// Situs sah yang disusupi: cloaking atau spam link judol tersembunyi. Konten judol di sub-path
+	// domain institusi (/wp-content/slot-gacor/) dengan konten kuat juga tanda susupan.
+	injected := analysis.Injection != nil && analysis.Injection.Detected
+	injectedPath := isGovEdu && urlPathScore > 0 && contentScore >= 0.5
 
 	switch {
+	case injected || injectedPath:
+		priority = "High"
+		rule = "injected"
+		if final < 0.8 {
+			final = 0.8
+		}
 	case hasGameProvider && hasArtifacts:
 		priority = "High"
 		rule = "game_provider+artifact"
@@ -273,10 +283,11 @@ func Compute(analysis *crawler.AnalysisResult, domainRisk float64, rawURL string
 	// - domain biasa: threshold 0.4, strong artifact, atau hostname mengandung istilah judol kuat
 	var isGambling bool
 	if isGovEdu {
-		isGambling = hasGameProvider || hasStrongArtifact || hasTemplateMatch
+		isGambling = hasGameProvider || hasStrongArtifact || hasTemplateMatch || injected || injectedPath
 	} else {
 		// "Rekening" tanpa konten judi sama sekali (situs bank, berita keuangan) bukan bukti judol
-		isGambling = final >= 0.4 || (hasStrongArtifact && contentScore >= 0.2) || hasHostnameSignal
+		// Konten judi kuat (≥70% = minimal 2 kata kunci) cukup — landing page judol sering tanpa rekening/provider
+		isGambling = final >= 0.4 || hasStrongContent || (hasStrongArtifact && contentScore >= 0.2) || hasHostnameSignal || injected
 	}
 	// High hanya untuk situs yang dinilai judol; sinyal kuat tanpa vonis judol (mis. berita
 	// pemberantasan judol di situs pemerintah) cukup Medium agar tetap ditinjau tanpa terlihat pasti judol.

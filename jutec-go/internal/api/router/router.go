@@ -101,6 +101,7 @@ func SetupRouter(neo4j *store.Neo4jDB, pg *store.PostgresDB, serperKey string, s
 	{
 		data.GET("/summary", dataHandler.GetSummary)
 		data.GET("/overview", overviewHandler.Get)
+		data.GET("/register-forms", (&handlers.RegisterFormsHandler{PG: pg}).List)
 		data.GET("/sites", dataHandler.GetSites)
 		data.GET("/apps", dataHandler.GetApps)
 		data.GET("/artifacts", artHandler.TopShared)
@@ -196,6 +197,9 @@ func SetupRouter(neo4j *store.Neo4jDB, pg *store.PostgresDB, serperKey string, s
 
 	// Settings
 	r.GET("/settings", settingsHandler.List)
+	r.GET("/settings/api-keys", settingsHandler.APIKeys)
+	r.PUT("/settings/api-keys/:env", settingsHandler.SetAPIKey)
+	r.POST("/settings/apply", settingsHandler.Apply)
 	r.PATCH("/settings/:key", settingsHandler.Update)
 
 	// Network Graph

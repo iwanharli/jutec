@@ -45,3 +45,13 @@ func (db *PostgresDB) SaveWidgetLinks(ctx context.Context, siteID int, links []s
 	_, err := db.Pool.Exec(ctx, `UPDATE sites SET widget_links = $2 WHERE id = $1`, siteID, links)
 	return err
 }
+
+// SaveInjection menyimpan tanda penyusupan hasil scan terakhir (nil = tidak ada → dikosongkan).
+// detected=false juga dikosongkan agar kolom hanya terisi bila ada sinyal.
+func (db *PostgresDB) SaveInjection(ctx context.Context, siteID int, inj any, detected bool) error {
+	if !detected {
+		inj = nil
+	}
+	_, err := db.Pool.Exec(ctx, `UPDATE sites SET injection = $2 WHERE id = $1`, siteID, inj)
+	return err
+}

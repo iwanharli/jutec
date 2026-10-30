@@ -128,7 +128,7 @@ func (h *ExternalIntelHandler) Crypto(c *gin.Context) {
 		}
 		if raw := h.PG.CachedCryptoProfile(ctx, a, maxAge); raw != nil {
 			e.Profile = raw
-		} else if p, err := h.Tron.USDTProfile(a, cryptoMaxPages); err != nil {
+		} else if p, err := h.Tron.AnyProfile(a, cryptoMaxPages); err != nil {
 			e.Error = err.Error()
 			if raw := h.PG.CachedCryptoProfile(ctx, a, 365*24*time.Hour); raw != nil {
 				e.Profile = raw // pakai data lama daripada kosong

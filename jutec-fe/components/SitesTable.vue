@@ -9,27 +9,21 @@
               <UBadge v-if="live" color="emerald" variant="subtle" size="xs">Live</UBadge>
             </div>
             <p class="section-desc">{{ total.toLocaleString('id-ID') }} domain cocok dengan filter</p>
-            <!-- Siklus hidup: bawaannya hanya situs yang masih beroperasi agar situs mati tidak jadi noise -->
-            <div class="flex gap-0.5 mt-2 p-0.5 rounded-lg bg-slate-950/60 ring-1 ring-slate-800 w-fit">
-              <UTooltip v-for="l in lifecycles" :key="l.value" :text="l.hint">
-                <UButton size="2xs" :label="l.label" :color="lifecycle === l.value ? 'primary' : 'gray'"
-                  :variant="lifecycle === l.value ? 'soft' : 'ghost'" @click="lifecycle = l.value" />
-              </UTooltip>
-            </div>
-          </div>
-          <div class="flex-1 flex flex-col sm:flex-row gap-3 lg:justify-end">
-            <UInput v-model="q" icon="i-lucide-search" placeholder="Cari domain..." class="sm:w-72" />
-            <div class="flex gap-1.5">
-              <UButton v-for="p in priorities" :key="p.value" :label="p.label"
-                :color="f.priority === p.value ? p.color : 'gray'" :variant="f.priority === p.value ? 'soft' : 'ghost'"
-                @click="f.priority = f.priority === p.value ? '' : p.value" />
-            </div>
-            <UButton :color="showFilters || activeCount ? 'primary' : 'gray'" variant="soft" icon="i-lucide-sliders-horizontal"
-              :label="activeCount ? `Filter (${activeCount})` : 'Filter'" @click="showFilters = !showFilters" />
           </div>
         </div>
 
-        <div v-if="showFilters" class="grid grid-cols-2 md:grid-cols-3 2xl:grid-cols-6 gap-3 pt-4 border-t border-slate-800">
+        <!-- Bar filter: satu baris, tinggi seragam -->
+        <div class="flex flex-wrap items-center gap-2">
+          <UInput v-model="q" icon="i-lucide-search" placeholder="Cari domain…" class="w-full sm:w-72" />
+          <!-- Siklus hidup: bawaannya hanya situs yang masih beroperasi agar situs mati tidak jadi noise -->
+          <SegmentedControl v-model="lifecycle" :options="lifecycles" />
+          <SegmentedControl v-model="f.priority" clearable :options="priorityOpts" />
+          <UButton class="ml-auto h-9" :color="showFilters || activeCount ? 'primary' : 'gray'" :variant="showFilters || activeCount ? 'soft' : 'solid'"
+            icon="i-lucide-sliders-horizontal" :trailing-icon="showFilters ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+            :label="activeCount ? `Filter lanjutan (${activeCount})` : 'Filter lanjutan'" @click="showFilters = !showFilters" />
+        </div>
+
+        <div v-if="showFilters" class="grid grid-cols-2 md:grid-cols-4 2xl:grid-cols-7 gap-3 rounded-xl bg-slate-950/40 ring-1 ring-slate-800 p-4">
           <UFormGroup v-if="!gamblingOnly" label="Klasifikasi">
             <USelect v-model="f.gambling" :options="opt.gambling" />
           </UFormGroup>
@@ -51,8 +45,8 @@
           <UFormGroup label="Urutkan">
             <USelect v-model="sortKey" :options="opt.sort" />
           </UFormGroup>
-          <div class="col-span-full flex justify-end">
-            <UButton size="sm" color="gray" variant="ghost" icon="i-lucide-rotate-ccw" label="Reset filter"
+          <div class="col-span-full flex justify-end -mb-1">
+            <UButton size="sm" color="gray" variant="soft" icon="i-lucide-rotate-ccw" label="Reset filter"
               :disabled="!activeCount" @click="resetFilters" />
           </div>
         </div>
@@ -74,13 +68,28 @@
                 <span class="w-1.5 h-1.5 rounded-full" :class="statusMeta[row.status]?.dot" />{{ statusMeta[row.status]?.label ?? row.status }}
               </span>
               <span v-if="!gamblingOnly" :class="row.is_gambling ? 'text-rose-400' : 'text-slate-500'">· {{ row.is_gambling ? 'Judol' : 'Normal' }}</span>
-              <UBadge v-if="row.role === 'operator'" color="rose" variant="subtle" size="xs">situs utama</UBadge>
-              <UBadge v-else-if="row.role === 'landing'" color="sky" variant="subtle" size="xs">landing</UBadge>
               <UBadge v-if="row.lifecycle === 'inactive'" color="gray" variant="outline" size="xs">tidak aktif</UBadge>
               <UBadge v-else-if="row.lifecycle === 'uncertain'" color="amber" variant="outline" size="xs">belum pasti</UBadge>
             </div>
           </div>
         </div>
+      </template>
+      <template #category-header>
+        <UDropdown :items="[categoryMenu]" :popper="{ placement: 'bottom-start' }" :ui="{ width: 'w-56' }">
+          <button type="button" class="inline-flex items-center gap-1.5 font-semibold" :class="category ? 'text-primary-300' : ''">
+            Jenis<UIcon :name="category ? 'i-lucide-filter-x' : 'i-lucide-filter'" class="w-3.5 h-3.5 opacity-70" />
+          </button>
+          <template #item="{ item }">
+            <UIcon :name="item.icon" class="w-4 h-4 shrink-0" :class="item.iconClass" />
+            <span class="flex-1 text-left truncate" :class="item.active ? 'text-white font-medium' : ''">{{ item.label }}</span>
+            <span class="text-[11px] tabular-nums text-slate-500">{{ item.count }}</span>
+          </template>
+        </UDropdown>
+      </template>
+      <template #category-data="{ row }">
+        <span v-if="catMeta[row.category]" class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[12px] font-medium ring-1 whitespace-nowrap" :class="catMeta[row.category].tag">
+          <UIcon :name="catMeta[row.category].icon" class="w-3.5 h-3.5" />{{ catMeta[row.category].label }}
+        </span>
       </template>
       <template #confidence-data="{ row }">
         <div class="space-y-1.5">
@@ -136,12 +145,11 @@ const props = withDefaults(defineProps<{
 
 const { get } = useApi()
 
-const priorities = [
-  { value: '', label: 'Semua', color: 'primary' },
-  { value: 'High', label: 'High', color: 'rose' },
-  { value: 'Medium', label: 'Medium', color: 'amber' },
-  { value: 'Low', label: 'Low', color: 'gray' },
-] as const
+const priorityOpts = [
+  { value: 'High', label: 'High', color: 'rose', dot: 'bg-rose-500' },
+  { value: 'Medium', label: 'Medium', color: 'amber', dot: 'bg-amber-500' },
+  { value: 'Low', label: 'Low', dot: 'bg-slate-500' },
+]
 
 const opt = {
   gambling: [{ label: 'Semua', value: '' }, { label: 'Judol', value: 'true' }, { label: 'Normal', value: 'false' }],
@@ -172,6 +180,7 @@ const statusMeta: Record<string, { label: string; dot: string; text: string }> =
 
 const columns = [
   { key: 'url', label: 'Domain', sortable: true },
+  { key: 'category', label: 'Jenis', class: 'w-44' },
   { key: 'confidence', label: 'Skor', sortable: true, class: 'w-40' },
   { key: 'artifact_count', label: 'Temuan', sortable: true, class: 'w-32' },
   { key: 'last_scanned_at', label: 'Waktu', sortable: true, class: 'w-48' },
@@ -184,6 +193,20 @@ const lifecycles = [
   { value: '', label: 'Semua', hint: 'Termasuk situs yang sudah tidak aktif' },
 ]
 const lifecycle = ref('live')
+
+// Kategori situs (dihitung backend) — definisi bersama dengan halaman detail
+const catMeta = SITE_CATEGORY
+const category = ref('')
+const catCounts = ref<Record<string, number>>({})
+// Menu filter di header kolom "Jenis" — tabel khusus judol (Dashboard) tanpa opsi "Bukan Judi"
+const categoryMenu = computed(() => [
+  { label: 'Semua jenis', icon: 'i-lucide-list', iconClass: 'text-slate-400', active: !category.value,
+    count: Object.entries(catCounts.value).filter(([k]) => !(props.gamblingOnly && k === 'clean')).reduce((n, [, v]) => n + v, 0).toLocaleString('id-ID'),
+    click: () => (category.value = '') },
+  ...Object.entries(catMeta).filter(([k]) => !(props.gamblingOnly && k === 'clean')).map(([value, m]) => ({
+    label: m.label, icon: m.icon, iconClass: m.tag.split(' ').find(c => c.startsWith('text-')), active: category.value === value,
+    count: (catCounts.value[value] ?? 0).toLocaleString('id-ID'), click: () => (category.value = value) })),
+])
 
 const blank = () => ({ priority: '', gambling: '', status: '', artifact: '', minConf: 0, days: 0, app: '' })
 const f = reactive(blank())
@@ -219,6 +242,7 @@ async function load(silent = false) {
       is_gambling: props.gamblingOnly ? true : (f.gambling || undefined),
       status: f.status || undefined,
       lifecycle: lifecycle.value || undefined,
+      category: category.value || undefined,
       artifact_type: f.artifact || undefined,
       min_conf: f.minConf || undefined,
       scanned_days: f.days || undefined,
@@ -230,12 +254,13 @@ async function load(silent = false) {
     })
     rows.value = d?.results ?? []
     total.value = d?.total ?? 0
+    catCounts.value = d?.category_counts ?? {}
   } catch {} finally { loading.value = false }
 }
 
 let timer: any = null
 watch(q, () => { clearTimeout(timer); timer = setTimeout(() => { page.value === 1 ? load() : (page.value = 1) }, 350) })
-watch([f, sort, limit, lifecycle], () => { page.value === 1 ? load() : (page.value = 1) }, { deep: true })
+watch([f, sort, limit, lifecycle, category], () => { page.value === 1 ? load() : (page.value = 1) }, { deep: true })
 watch(page, () => load())
 
 let poll: any = null

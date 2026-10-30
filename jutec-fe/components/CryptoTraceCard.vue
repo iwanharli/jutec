@@ -4,8 +4,8 @@
       <div class="flex items-center gap-3">
         <div class="card-icon bg-orange-500/10 ring-orange-500/25"><UIcon name="i-lucide-bitcoin" class="w-[18px] h-[18px] text-orange-400" /></div>
         <div class="flex-1 min-w-0">
-          <h2 class="card-title">Jejak Dana USDT (TRC20)</h2>
-          <p class="card-desc">Riwayat transfer dari blockchain TRON — sumber: TronGrid</p>
+          <h2 class="card-title">Jejak Dana USDT</h2>
+          <p class="card-desc">Riwayat transfer USDT — TRC20 (TronGrid) & ERC20 (Etherscan)</p>
         </div>
         <UButton size="sm" color="gray" variant="soft" icon="i-lucide-refresh-cw" label="Perbarui" :loading="busy" @click="$emit('refresh')" />
       </div>
@@ -13,7 +13,7 @@
     <div class="space-y-5">
       <div v-for="w in wallets" :key="w.address">
         <div class="flex flex-wrap items-center gap-2">
-          <a :href="`https://tronscan.org/#/address/${w.address}`" target="_blank" rel="noopener" class="mono text-[15px] text-slate-100 hover:text-orange-300 break-all">{{ w.address }}</a>
+          <a :href="explorer(w.address)" target="_blank" rel="noopener" class="mono text-[15px] text-slate-100 hover:text-orange-300 break-all">{{ w.address }}</a>
           <UBadge v-if="linkedCount(w)" color="rose" variant="solid" size="xs"><UIcon name="i-lucide-link" class="w-3 h-3 mr-1" />terhubung {{ linkedCount(w) }} dompet situs lain</UBadge>
         </div>
         <p v-if="w.error && !w.profile" class="text-[13px] text-rose-300 mt-1">{{ w.error }}</p>
@@ -34,7 +34,7 @@
                 <ul class="space-y-1">
                   <li v-for="cp in w.profile[side.key]" :key="cp.address" class="text-sm">
                     <div class="flex items-center gap-2">
-                      <a :href="`https://tronscan.org/#/address/${cp.address}`" target="_blank" rel="noopener" class="mono truncate text-slate-300 hover:text-orange-300">{{ cp.address }}</a>
+                      <a :href="explorer(cp.address)" target="_blank" rel="noopener" class="mono truncate text-slate-300 hover:text-orange-300">{{ cp.address }}</a>
                       <span class="ml-auto tabular-nums text-slate-100 shrink-0">{{ usd(cp.amount) }}</span>
                       <span class="text-[12px] text-slate-500 shrink-0 w-10 text-right">{{ cp.count }}×</span>
                     </div>
@@ -54,6 +54,7 @@
 </template>
 
 <script setup lang="ts">
+const explorer = (a: string) => a?.toLowerCase().startsWith('0x') ? `https://etherscan.io/address/${a}` : `https://tronscan.org/#/address/${a}`
 defineProps<{ wallets: any[]; busy: boolean }>()
 defineEmits<{ (e: 'refresh'): void }>()
 const sides = [{ key: 'top_senders', label: 'Pengirim terbesar (dana masuk)' }, { key: 'top_receivers', label: 'Penerima terbesar (dana keluar)' }]

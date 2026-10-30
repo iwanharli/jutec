@@ -27,9 +27,26 @@ type RecentSite struct {
 	Status         string  `json:"status"`
 	Lifecycle      string  `json:"lifecycle"`
 	Role           string  `json:"role"`
+	Category       string  `json:"category"`
 	ArtifactCount  int     `json:"artifact_count"`
 	AppCount       int     `json:"app_count"`
 }
+
+// siteCategorySQL: kategori situs untuk label & filter di tabel — dihitung dari data yang sudah ada.
+//   betting   — situs judi utama (form login/daftar sendiri, provider game, minta rekening)
+//   landing   — pintu masuk: tombol daftar/login ke domain lain
+//   injected  — konten judi di domain institusi (pemerintah/kampus/sekolah/desa) yang dibobol
+//   info      — situs pendukung: RTP, prediksi, bocoran, live draw, paito
+//   unclear   — terdeteksi judi, perannya belum bisa ditentukan
+//   clean     — tidak terdeteksi judi
+const siteCategorySQL = `CASE
+	WHEN NOT COALESCE(s.is_gambling, false) THEN 'clean'
+	WHEN COALESCE((s.injection->>'detected')::boolean, false) THEN 'injected'
+	WHEN s.url ~* '\.(go|ac|sch|desa|mil|gov)\.id(/|$)|\.(gov|edu|int|mil)(\.[a-z]{2})?(/|$)|\.(edu|ac|gov)\.[a-z]{2}(/|$)' THEN 'injected'
+	WHEN s.role = 'operator' THEN 'betting'
+	WHEN s.role = 'landing' THEN 'landing'
+	WHEN s.url ~* '(rtp|prediksi|bocoran|live-?draw|paito|syair|result-?togel|data-?(sgp|hk|sdy))' THEN 'info'
+	ELSE 'unclear' END`
 
 // SiteFilter: filter & urutan untuk daftar situs (Repository / Dashboard).
 type SiteFilter struct {
@@ -38,6 +55,7 @@ type SiteFilter struct {
 	Query        string
 	Status       string  // active | unreachable | offline
 	Lifecycle    string  // "" semua | live (masih beroperasi) | inactive
+	Category     string  // betting | landing | injected | info | unclear | clean (lihat siteCategorySQL)
 	MinConf      float64 // 0..1
 	MaxConf      float64 // 0..1 (0 = tanpa batas)
 	ArtifactType string  // Bank | E-Wallet | Contact | QRIS | Crypto | Phone | any
@@ -127,6 +145,9 @@ func (db *PostgresDB) GetRecentSites(ctx context.Context, f SiteFilter) ([]Recen
 	case "active":
 		where += " AND COALESCE(s.status, '') <> 'unreachable' AND s.offline_since IS NULL"
 	}
+	if f.Category != "" {
+		add("("+siteCategorySQL+") = $%d", f.Category)
+	}
 	switch f.Lifecycle {
 	case "live":
 		where += " AND site_lifecycle(s.reach_status, s.status, s.offline_since) <> 'inactive'"
@@ -165,7 +186,7 @@ func (db *PostgresDB) GetRecentSites(ctx context.Context, f SiteFilter) ([]Recen
 		       s.last_scanned_at, s.created_at,
 		       CASE WHEN s.reach_status IN ('blocked_alive','blocked','nxdomain') THEN s.reach_status
 		            WHEN s.status = 'unreachable' THEN 'unreachable' WHEN s.offline_since IS NOT NULL THEN 'offline' ELSE 'active' END,
-		       site_lifecycle(s.reach_status, s.status, s.offline_since), COALESCE(s.role, ''),
+		       site_lifecycle(s.reach_status, s.status, s.offline_since), COALESCE(s.role, ''), `+siteCategorySQL+`,
 		       (SELECT COUNT(*) FROM site_artifacts sa WHERE sa.site_id = s.id) AS artifact_count,
 		       (SELECT COUNT(*) FROM site_apps sp WHERE sp.site_id = s.id) AS app_count,
 		       COUNT(*) OVER() AS total
@@ -184,7 +205,7 @@ func (db *PostgresDB) GetRecentSites(ctx context.Context, f SiteFilter) ([]Recen
 		var s RecentSite
 		var scanned, created *time.Time
 		if err := rows.Scan(&s.ID, &s.URL, &s.Priority, &s.Confidence, &s.IsGambling, &scanned, &created,
-			&s.Status, &s.Lifecycle, &s.Role, &s.ArtifactCount, &s.AppCount, &total); err != nil {
+			&s.Status, &s.Lifecycle, &s.Role, &s.Category, &s.ArtifactCount, &s.AppCount, &total); err != nil {
 			return nil, 0, err
 		}
 		if scanned != nil {
@@ -196,4 +217,29 @@ func (db *PostgresDB) GetRecentSites(ctx context.Context, f SiteFilter) ([]Recen
 		results = append(results, s)
 	}
 	return results, total, nil
+}
+
+// SiteCategoryCounts: jumlah situs per kategori (untuk chip filter di tabel).
+func (db *PostgresDB) SiteCategoryCounts(ctx context.Context, lifecycle string) map[string]int {
+	where := ""
+	switch lifecycle {
+	case "live":
+		where = " WHERE site_lifecycle(s.reach_status, s.status, s.offline_since) <> 'inactive'"
+	case "inactive":
+		where = " WHERE site_lifecycle(s.reach_status, s.status, s.offline_since) = 'inactive'"
+	}
+	out := map[string]int{}
+	rows, err := db.Pool.Query(ctx, `SELECT `+siteCategorySQL+`, COUNT(*) FROM sites s`+where+` GROUP BY 1`)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var k string
+		var n int
+		if rows.Scan(&k, &n) == nil {
+			out[k] = n
+		}
+	}
+	return out
 }

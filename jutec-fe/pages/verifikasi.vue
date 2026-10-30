@@ -52,14 +52,12 @@
             <h2 class="card-title">Belum diverifikasi</h2>
             <p class="card-desc">{{ fmt(total) }} situs · {{ sortHint }}</p>
           </div>
-          <!-- Prioritas dengan jumlah per kategori -->
-          <div class="flex gap-0.5 p-0.5 rounded-lg bg-slate-950/60 ring-1 ring-slate-800">
-            <UButton v-for="p in priorities" :key="p.value" size="xs" :color="priority === p.value ? 'primary' : 'gray'"
-              :variant="priority === p.value ? 'soft' : 'ghost'" @click="priority = p.value">
-              {{ p.label }}<span class="ml-1 tabular-nums text-[11px] opacity-70">{{ fmt(p.n) }}</span>
-            </UButton>
+          <div class="flex flex-wrap items-center gap-2">
+            <SegmentedControl v-model="priority" :options="priorities" />
+            <USelect v-model="sort" :options="sortOptions" icon="i-lucide-arrow-up-down" class="w-full sm:w-52" />
+            <FilterToggle v-model="includeStrong" label="+ bukti kuat" icon="i-lucide-shield-check"
+              hint="Situs dengan rekening, provider game, atau klaster operator sudah dianggap judol oleh mesin" />
           </div>
-          <USelect v-model="sort" :options="sortOptions" class="lg:w-52" />
         </div>
         <p class="hidden md:flex items-center gap-3 text-[12px] text-slate-500 mt-3">
           <UIcon name="i-lucide-keyboard" class="w-3.5 h-3.5" />
@@ -161,6 +159,7 @@ const busy = ref('')
 const leaving = ref(new Set<number>())
 const priority = ref('High')
 const sort = ref('weak')
+const includeStrong = ref(false) // bukti kuat = dikonfirmasi mesin; disembunyikan agar analis fokus ke yang meragukan
 const page = ref(1)
 const limit = 25
 const cursor = ref(0)
@@ -187,14 +186,14 @@ const sortHint = computed(() => ({
   recent: 'scan terbaru duluan',
 } as Record<string, string>)[sort.value])
 const priorities = computed(() => [
-  { label: 'High', value: 'High', n: stats.value.pending_high },
-  { label: 'Medium', value: 'Medium', n: stats.value.pending_medium },
-  { label: 'Low', value: 'Low', n: stats.value.pending_low },
+  { label: 'High', value: 'High', n: stats.value.pending_high, color: 'rose', dot: 'bg-rose-500' },
+  { label: 'Medium', value: 'Medium', n: stats.value.pending_medium, color: 'amber', dot: 'bg-amber-500' },
+  { label: 'Low', value: 'Low', n: stats.value.pending_low, dot: 'bg-slate-500' },
   { label: 'Semua', value: '', n: stats.value.pending },
 ])
 
 const kpis = computed(() => [
-  { label: 'Menunggu', value: stats.value.pending, hint: `${fmt(stats.value.pending_high)} prioritas High`, icon: 'i-lucide-hourglass', iconColor: 'text-amber-400', color: 'text-white' },
+  { label: 'Perlu analis', value: stats.value.pending, hint: `bukti lemah/sedang · ${fmt(stats.value.machine_confirmed)} dikonfirmasi mesin`, icon: 'i-lucide-hourglass', iconColor: 'text-amber-400', color: 'text-white' },
   { label: 'Hari ini', value: stats.value.today, hint: 'keputusan dibuat', icon: 'i-lucide-calendar-check', iconColor: 'text-primary-400', color: 'text-white' },
   { label: 'Judol', value: stats.value.verified_judol, hint: 'terverifikasi', icon: 'i-lucide-shield-alert', iconColor: 'text-rose-400', color: 'text-rose-300' },
   { label: 'Bukan judol', value: stats.value.verified_not, hint: 'false positive dikoreksi', icon: 'i-lucide-shield-check', iconColor: 'text-emerald-400', color: 'text-emerald-300' },
@@ -250,7 +249,7 @@ function strength(r: any) {
 async function load() {
   loading.value = true
   try {
-    const d = await get<any>('/verification/queue', { priority: priority.value || undefined, sort: sort.value, limit, offset: (page.value - 1) * limit })
+    const d = await get<any>('/verification/queue', { priority: priority.value || undefined, sort: sort.value, limit, offset: (page.value - 1) * limit, include_strong: includeStrong.value ? 1 : undefined })
     rows.value = d?.results ?? []
     total.value = d?.total ?? 0
     stats.value = d?.stats ?? {}
@@ -309,7 +308,7 @@ function onKey(e: KeyboardEvent) {
 onMounted(() => { load(); window.addEventListener('keydown', onKey) })
 onUnmounted(() => window.removeEventListener('keydown', onKey))
 
-watch([priority, sort], () => { cursor.value = 0; page.value === 1 ? load() : (page.value = 1) })
+watch([priority, sort, includeStrong], () => { cursor.value = 0; page.value === 1 ? load() : (page.value = 1) })
 watch(page, () => { cursor.value = 0; load() })
 useHead({ title: 'Antrean Verifikasi — Jutec' })
 </script>

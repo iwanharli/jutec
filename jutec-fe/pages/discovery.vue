@@ -277,6 +277,7 @@
 </template>
 
 <script setup lang="ts">
+const { confirm } = useConfirm()
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 
 const { get, post, apiBase } = useApi()
@@ -427,7 +428,9 @@ async function followSweep(id: string, resume = false) {
 }
 async function sweepAction(action: 'pause' | 'resume' | 'cancel') {
   if (!sweepJob.value) return
-  if (action === 'cancel' && !confirm('Batalkan Deep Sweep? Situs yang sudah dianalisis tetap tersimpan.')) return
+  if (action === 'cancel' && !(await confirm({ title: 'Batalkan Deep Sweep?', tone: 'danger', icon: 'i-lucide-square', confirmLabel: 'Batalkan sweep', cancelLabel: 'Lanjutkan sweep',
+    description: 'Sweep berhenti sekarang dan tidak bisa dilanjutkan.',
+    details: ['Situs yang sudah dianalisis tetap tersimpan', 'Hasil pencarian Google tersimpan di cache 24 jam — sweep berikutnya tidak memakai kuota lagi'] }))) return
   try { await post(`/sweep/${sweepJob.value.id}/${action}`, {}); await pollSweep(sweepJob.value.id) }
   catch (e: any) { addLog(`Gagal ${action}: ${e.message}`, 'WARN') }
 }

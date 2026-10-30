@@ -171,46 +171,7 @@
         <SitesTable ref="sitesTable" title="Domain Judol Terbaru" gambling-only live analyze-path="/analyze" :default-limit="10" />
       </div>
 
-      <UCard class="xl:col-span-4" :ui="{ body: { padding: 'px-5 py-4' } }">
-        <template #header>
-          <div class="flex items-center gap-2.5">
-            <span class="w-2 h-2 rounded-full" :class="sys.redis && sys.servers ? 'bg-emerald-500' : 'bg-rose-500'" />
-            <h2 class="section-title flex-1">Kesehatan Sistem</h2>
-            <span class="text-[12px] text-slate-500">{{ sys.redis ? `${sys.servers} worker aktif` : 'Redis tidak terhubung' }}</span>
-          </div>
-        </template>
-
-        <p class="text-[12px] uppercase tracking-wider text-slate-500 mb-2">Antrean tugas</p>
-        <EmptyState v-if="!sys.queues?.length" compact :tone="sys.redis ? 'good' : 'neutral'"
-          :icon="sys.redis ? 'i-lucide-check' : 'i-lucide-unplug'" :title="sys.redis ? 'Antrean kosong' : 'Worker nonaktif'"
-          :desc="sys.redis ? 'Tidak ada tugas yang menunggu.' : 'Redis tidak terhubung — scan otomatis & pengayaan tidak berjalan.'" />
-        <table v-else class="w-full text-[13px] tabular-nums">
-          <thead class="text-[11px] text-slate-500 uppercase"><tr><th class="text-left font-medium pb-1">Antrean</th><th class="text-right font-medium">Antre</th><th class="text-right font-medium">Jalan</th><th class="text-right font-medium">Selesai*</th><th class="text-right font-medium">Gagal*</th></tr></thead>
-          <tbody>
-            <tr v-for="q in sys.queues" :key="q.name" class="text-slate-300">
-              <td class="py-1">{{ q.name }}<UBadge v-if="q.paused" color="amber" variant="subtle" size="xs" class="ml-1">jeda</UBadge></td>
-              <td class="text-right" :class="q.pending > 100 && 'text-amber-400'">{{ q.pending + q.scheduled + q.retry }}</td>
-              <td class="text-right">{{ q.active }}</td>
-              <td class="text-right">{{ q.processed_today }}</td>
-              <td class="text-right" :class="q.failed_today && 'text-rose-400'">{{ q.failed_today }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <p v-if="sys.queues?.length" class="text-[11px] text-slate-600 mt-1">* hari ini</p>
-        <p v-if="sys.scheduler" class="text-[12px] text-slate-500 mt-2">
-          {{ sys.scheduler.jobs }} jadwal otomatis · terakhir {{ ago(sys.scheduler.last_at) }} · berikutnya {{ inTime(sys.scheduler.next_at) }}
-        </p>
-
-        <p class="text-[12px] uppercase tracking-wider text-slate-500 mt-5 mb-2">Kunci API</p>
-        <ul class="space-y-1.5">
-          <li v-for="key in sys.api_keys ?? []" :key="key.name" class="flex items-center gap-2 text-[13px]">
-            <UIcon :name="key.set ? 'i-lucide-circle-check' : key.free_tier ? 'i-lucide-circle-dashed' : 'i-lucide-circle-x'" class="w-4 h-4 shrink-0"
-              :class="key.set ? 'text-emerald-400' : key.free_tier ? 'text-slate-500' : key.required ? 'text-rose-400' : 'text-amber-400'" />
-            <span class="text-slate-300">{{ key.name }}</span>
-            <span class="ml-auto text-[12px] text-slate-500">{{ key.set ? 'terpasang' : key.free_tier ? 'kuota gratis' : 'tidak ada — nonaktif' }}</span>
-          </li>
-        </ul>
-      </UCard>
+      <SystemHealthCard class="xl:col-span-4" :sys="sys" />
     </div>
   </div>
 </template>
@@ -250,9 +211,13 @@ const actions = computed(() => {
   const a = ov.value?.actions ?? {}
   return [
     { key: 'unverified', cta: 'Buka antrean verifikasi', dot: 'bg-amber-500', title: 'Belum diverifikasi', icon: 'i-lucide-badge-help', count: a.unverified?.count ?? 0,
-      desc: 'Prioritas High yang masih beroperasi, belum dikonfirmasi analis',
+      desc: 'Bukti lemah/sedang — perlu keputusan analis. Situs dengan bukti kuat sudah dikonfirmasi mesin.',
       ring: 'ring-amber-500/40', box: 'bg-amber-500/10 ring-amber-500/25', text: 'text-amber-400',
       items: siteItems(a.unverified, x => `${Math.round(x.confidence * 100)}%`), more: '/verifikasi', emptyTitle: 'Semua sudah diverifikasi' },
+    { key: 'ready_block', cta: '', dot: 'bg-emerald-500', title: 'Siap diajukan blokir', icon: 'i-lucide-gavel', count: a.ready_block?.count ?? 0,
+      desc: 'Judol pasti (terverifikasi/bukti kuat), bukti forensik lengkap, dan masih bisa diakses — siap dilaporkan.',
+      ring: 'ring-emerald-500/40', box: 'bg-emerald-500/10 ring-emerald-500/25', text: 'text-emerald-400',
+      items: siteItems(a.ready_block, x => `${Math.round(x.confidence * 100)}%`), more: '', emptyTitle: 'Belum ada yang siap' },
     { key: 'revived', cta: '', dot: 'bg-rose-500', title: 'Hidup lagi', icon: 'i-lucide-rotate-ccw', count: a.revived?.count ?? 0,
       desc: 'Situs mati yang aktif kembali ≤30 hari — operator memakai ulang domain',
       ring: 'ring-rose-500/40', box: 'bg-rose-500/10 ring-rose-500/25', text: 'text-rose-400',

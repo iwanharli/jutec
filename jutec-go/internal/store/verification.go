@@ -90,7 +90,17 @@ type VerifyQueueItem struct {
 
 // VerifyQueue: situs bertanda judol yang belum diverifikasi manusia. Urutan: bukti terlemah dulu
 // (tanpa rekening & tanpa klaster) karena paling mungkin salah deteksi — kecuali sort=confidence.
-func (db *PostgresDB) VerifyQueue(ctx context.Context, priority, sort string, limit, offset int) ([]VerifyQueueItem, int, error) {
+// StrongEvidenceSQL: bukti kuat bahwa situs s adalah judol — rekening/e-wallet/QRIS/kripto, provider game,
+// atau tergabung dalam klaster operator. Situs seperti ini dianggap "terkonfirmasi mesin" dan tidak perlu
+// diperiksa analis; antrean verifikasi hanya berisi yang buktinya lemah/sedang.
+const StrongEvidenceSQL = `(EXISTS (SELECT 1 FROM site_artifacts sa JOIN artifacts a ON a.id = sa.artifact_id
+		WHERE sa.site_id = s.id AND a.type IN ('Bank','E-Wallet','VirtualAccount','QRIS','Crypto'))
+	OR EXISTS (SELECT 1 FROM site_operators so JOIN operators o ON o.id = so.operator_id AND o.platform = 'Klaster' WHERE so.site_id = s.id)
+	OR COALESCE((SELECT jsonb_array_length(l.result->'result'->'network_signals'->'game_providers') FROM scan_logs l
+		WHERE l.site_id = s.id AND jsonb_typeof(l.result->'result'->'network_signals'->'game_providers') = 'array'
+		ORDER BY l.created_at DESC LIMIT 1), 0) > 0)`
+
+func (db *PostgresDB) VerifyQueue(ctx context.Context, priority, sort string, limit, offset int, includeStrong bool) ([]VerifyQueueItem, int, error) {
 	order := "money ASC, clustered ASC, s.confidence ASC"
 	if sort == "confidence" {
 		order = "s.confidence DESC"
@@ -121,8 +131,8 @@ func (db *PostgresDB) VerifyQueue(ctx context.Context, priority, sort string, li
 			SELECT l.result->'result'->'found_keywords' AS kw, l.result->'score'->>'rule' AS rule
 			FROM scan_logs l WHERE l.site_id = s.id AND NOT (l.result ? 'error') AND l.result ? 'score'
 			ORDER BY l.created_at DESC LIMIT 1) lk ON true
-		WHERE s.is_gambling AND s.verified_status IS NULL AND ($1 = '' OR s.priority = $1)
-		ORDER BY `+order+`, s.id LIMIT $2 OFFSET $3`, priority, limit, offset)
+		WHERE s.is_gambling AND s.verified_status IS NULL AND ($1 = '' OR s.priority = $1) AND ($4 OR NOT `+StrongEvidenceSQL+`)
+		ORDER BY `+order+`, s.id LIMIT $2 OFFSET $3`, priority, limit, offset, includeStrong)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -148,16 +158,19 @@ func (db *PostgresDB) VerifyQueue(ctx context.Context, priority, sort string, li
 func (db *PostgresDB) VerifyStats(ctx context.Context) map[string]int {
 	out := map[string]int{}
 	var a, b, c, d int
+	// "pending" = perlu analis (bukti lemah/sedang); bukti kuat dihitung terpisah sebagai terkonfirmasi mesin
+	var e, f, m int
 	db.Pool.QueryRow(ctx, `SELECT
-		COUNT(*) FILTER (WHERE is_gambling AND verified_status IS NULL),
-		COUNT(*) FILTER (WHERE is_gambling AND verified_status IS NULL AND priority='High'),
-		COUNT(*) FILTER (WHERE verified_status='judol'),
-		COUNT(*) FILTER (WHERE verified_status='bukan_judol') FROM sites`).Scan(&a, &b, &c, &d)
+		COUNT(*) FILTER (WHERE s.is_gambling AND s.verified_status IS NULL AND NOT strong),
+		COUNT(*) FILTER (WHERE s.is_gambling AND s.verified_status IS NULL AND NOT strong AND s.priority='High'),
+		COUNT(*) FILTER (WHERE s.verified_status='judol'),
+		COUNT(*) FILTER (WHERE s.verified_status='bukan_judol'),
+		COUNT(*) FILTER (WHERE s.is_gambling AND s.verified_status IS NULL AND NOT strong AND s.priority='Medium'),
+		COUNT(*) FILTER (WHERE s.is_gambling AND s.verified_status IS NULL AND NOT strong AND s.priority='Low'),
+		COUNT(*) FILTER (WHERE s.is_gambling AND s.verified_status IS NULL AND strong)
+		FROM sites s CROSS JOIN LATERAL (SELECT `+StrongEvidenceSQL+` AS strong) x`).Scan(&a, &b, &c, &d, &e, &f, &m)
 	out["pending"], out["pending_high"], out["verified_judol"], out["verified_not"] = a, b, c, d
-	var e, f int
-	db.Pool.QueryRow(ctx, `SELECT COUNT(*) FILTER (WHERE is_gambling AND verified_status IS NULL AND priority='Medium'),
-		COUNT(*) FILTER (WHERE is_gambling AND verified_status IS NULL AND priority='Low') FROM sites`).Scan(&e, &f)
-	out["pending_medium"], out["pending_low"] = e, f
+	out["pending_medium"], out["pending_low"], out["machine_confirmed"] = e, f, m
 	// Keputusan hari ini (WIB) — tidak termasuk pembatalan
 	var g int
 	db.Pool.QueryRow(ctx, `SELECT COUNT(DISTINCT site_id) FROM site_verifications

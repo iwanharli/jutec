@@ -63,7 +63,7 @@
                   </template>
                 </p>
               </div>
-              <UInput v-model="search" icon="i-lucide-search" placeholder="Cari domain..." class="sm:w-72" />
+              <UInput v-model="search" icon="i-lucide-search" placeholder="Cari domain…" class="w-full sm:w-72" />
             </div>
           </template>
 

@@ -93,8 +93,10 @@
                 <h2 class="section-title">{{ currentType.label }}</h2>
                 <p class="section-desc">{{ filteredKeywords.length }} dari {{ keywords.length }} keyword</p>
               </div>
-              <USelect v-if="activeType === 'detection' && stats" v-model="sortBy" :options="sortOptions" class="sm:w-52" />
-              <UInput v-model="search" icon="i-lucide-search" placeholder="Cari keyword..." class="sm:w-72" />
+              <div class="flex flex-wrap items-center gap-2">
+                <UInput v-model="search" icon="i-lucide-search" placeholder="Cari keyword…" class="w-full sm:w-72" />
+                <USelect v-if="activeType === 'detection' && stats" v-model="sortBy" :options="sortOptions" icon="i-lucide-arrow-up-down" class="w-full sm:w-52" />
+              </div>
             </div>
           </template>
 
@@ -143,6 +145,7 @@
 </template>
 
 <script setup lang="ts">
+const { confirm } = useConfirm()
 import { ref, computed, reactive, watch } from 'vue'
 
 const { get, post, put, del } = useApi()
@@ -207,7 +210,9 @@ async function applyWeight(kw: any, weight: number, quiet = false) {
 }
 async function applyAll() {
   const list = pendingSuggestions.value
-  if (!confirm(`Terapkan saran bobot untuk ${list.length} kata kunci? Berlaku untuk scan berikutnya.`)) return
+  if (!(await confirm({ title: `Terapkan saran bobot untuk ${list.length} kata kunci?`, icon: 'i-lucide-wand-sparkles', confirmLabel: 'Terapkan semua',
+    description: 'Bobot dihitung dari ketepatan tiap kata kunci pada situs yang sudah diverifikasi.',
+    details: ['Berlaku untuk scan berikutnya — skor situs lama tidak berubah sampai di-scan ulang', 'Bobot bisa diubah lagi kapan saja'] }))) return
   applying.value = true
   try { for (const kw of list) await applyWeight(kw, statOf(kw).suggested_weight, true) }
   finally { applying.value = false }
@@ -240,7 +245,9 @@ async function save() {
 }
 
 async function remove(id: number) {
-  if (!confirm('Hapus keyword ini?')) return
+  const kw = keywords.value.find((k: any) => k.id === id)
+  if (!(await confirm({ title: `Hapus keyword "${kw?.keyword ?? ''}"?`, tone: 'danger', confirmLabel: 'Hapus',
+    description: 'Keyword tidak lagi dipakai pada scan berikutnya. Hasil scan sebelumnya tidak berubah.' }))) return
   try { await del(`/keywords/${activeType.value}/${id}`) }
   catch (e: any) { toast.add({ title: 'Gagal menghapus', description: e.message, color: 'rose', icon: 'i-lucide-circle-alert' }) }
   await load()

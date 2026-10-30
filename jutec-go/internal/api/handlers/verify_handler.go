@@ -77,7 +77,7 @@ func (h *VerifyHandler) Queue(c *gin.Context) {
 	if limit <= 0 || limit > 100 {
 		limit = 25
 	}
-	list, total, err := h.PG.VerifyQueue(c, c.Query("priority"), c.Query("sort"), limit, offset)
+	list, total, err := h.PG.VerifyQueue(c, c.Query("priority"), c.Query("sort"), limit, offset, c.Query("include_strong") == "1")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

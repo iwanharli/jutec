@@ -53,6 +53,7 @@ type Counterparty struct {
 // Profile adalah ringkasan aktivitas USDT satu alamat dari sampel transfer terbaru.
 type Profile struct {
 	Address      string         `json:"address"`
+	Network      string         `json:"network,omitempty"` // TRC20 | ERC20
 	Transfers    int            `json:"transfers"`     // jumlah transfer dalam sampel
 	Complete     bool           `json:"complete"`      // false = riwayat lebih panjang dari sampel
 	TotalIn      float64        `json:"total_in"`      // USDT
@@ -66,7 +67,7 @@ type Profile struct {
 
 // USDTProfile mengambil hingga maxPages×200 transfer USDT terbaru lalu meringkasnya.
 func (c *Client) USDTProfile(address string, maxPages int) (*Profile, error) {
-	p := &Profile{Address: address, Complete: true, FetchedAt: time.Now()}
+	p := &Profile{Address: address, Network: "TRC20", Complete: true, FetchedAt: time.Now()}
 	in, out := map[string]*Counterparty{}, map[string]*Counterparty{}
 	fingerprint := ""
 	for page := 0; page < maxPages; page++ {

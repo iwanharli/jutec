@@ -4,10 +4,15 @@
       subtitle="Telusuri seluruh hasil pemindaian: domain, artefak transaksi, aplikasi, infrastruktur tracking, operator, dan data leak."
       icon="i-lucide-database">
       <template #actions>
-        <UButton size="lg" icon="i-lucide-refresh-ccw-dot" :loading="resolveAllRunning"
-          :disabled="pending.total === 0" :color="pending.total > 0 ? 'amber' : 'gray'" variant="soft"
-          :label="resolveAllRunning ? 'Memproses...' : pending.total > 0 ? `Resolve Pending (${pending.total})` : 'Tidak ada pending'"
-          @click="resolveAll" />
+        <!-- Telegram & identitas diproses otomatis; tombol hanya untuk "jangan tunggu jadwal" -->
+        <div class="flex items-center gap-2 rounded-xl bg-slate-900/60 ring-1 ring-slate-800 pl-3 pr-1.5 py-1.5">
+          <UIcon name="i-lucide-bot" class="w-4 h-4 text-emerald-400" />
+          <span class="text-[13px] text-slate-300">{{ pending.total ? `${pending.total} menunggu diproses otomatis` : 'Semua sudah diproses' }}</span>
+          <span class="text-[12px] text-slate-500 hidden md:inline">· Telegram tiap 2 jam · identitas tiap 1 jam</span>
+          <UTooltip text="Proses sekarang tanpa menunggu jadwal">
+            <UButton v-if="pending.total" size="xs" color="gray" variant="ghost" icon="i-lucide-play" :loading="resolveAllRunning" @click="resolveAll" />
+          </UTooltip>
+        </div>
       </template>
     </PageHeader>
 
@@ -39,16 +44,15 @@
                 <h2 class="section-title">Artefak Transaksi</h2>
                 <p class="section-desc">Rekening, wallet, kontak, dan QRIS yang dipakai bersama oleh banyak situs</p>
               </div>
-              <div class="flex flex-wrap gap-3">
+              <div class="flex flex-wrap items-center gap-2">
                 <USelect v-model="artType" :options="[{ label: 'Semua Tipe', value: '' }, ...artTypeOptions.map(t => ({ label: t, value: t }))]"
                   class="w-48" @change="artName = ''; loadArtifacts()" />
                 <USelect v-if="artType && artNameOptions.length" v-model="artName"
                   :options="[{ label: 'Semua Nama', value: '' }, ...artNameOptions.map(n => ({ label: n, value: n }))]"
                   class="w-48" @change="loadArtifacts()" />
-                <div class="flex items-center"><UTooltip text="Bawaannya disembunyikan: item yang semua situs pemakainya sudah tidak aktif">
-                  <UToggle v-model="showInactive" /><span class="ml-2 text-sm text-slate-400">Tampilkan dari situs tidak aktif</span>
-                </UTooltip></div>
-                <UBadge color="gray" variant="subtle" size="lg">{{ artifacts.length }} artefak</UBadge>
+                <FilterToggle v-model="showInactive" label="Termasuk situs tidak aktif" icon="i-lucide-power-off"
+                  hint="Bawaannya disembunyikan: item yang semua situs pemakainya sudah tidak aktif" />
+                <span class="h-9 inline-flex items-center rounded-lg bg-slate-800/60 px-3 text-sm tabular-nums text-slate-300">{{ artifacts.length }} artefak</span>
               </div>
             </div>
           </template>
@@ -119,10 +123,9 @@
                 <h2 class="section-title">Tracking ID Bersama</h2>
                 <p class="section-desc">Analytics, pixel, dan widget yang dipakai lebih dari satu situs · {{ filteredTracking.length }} ID</p>
               </div>
-              <div class="flex flex-col sm:flex-row gap-3">
-                <div class="flex items-center"><UTooltip text="Bawaannya disembunyikan: item yang semua situs pemakainya sudah tidak aktif">
-                  <UToggle v-model="showInactive" /><span class="ml-2 text-sm text-slate-400">Tampilkan dari situs tidak aktif</span>
-                </UTooltip></div>
+              <div class="flex flex-wrap items-center gap-2">
+                <FilterToggle v-model="showInactive" label="Termasuk situs tidak aktif" icon="i-lucide-power-off"
+                  hint="Bawaannya disembunyikan: item yang semua situs pemakainya sudah tidak aktif" />
                 <UInput v-model="trackSearch" icon="i-lucide-search" placeholder="Cari ID atau platform..." class="sm:w-72" />
                 <USelect v-model="trackPlatform" class="sm:w-56"
                   :options="[{ label: 'Semua Platform', value: '' }, ...trackPlatforms.map(p => ({ label: p, value: p }))]"
@@ -260,16 +263,11 @@
                 <h2 class="section-title">Link Eksternal Bersama</h2>
                 <p class="section-desc">Domain yang di-link dari banyak situs judol · {{ linkTotal.toLocaleString('id-ID') }} domain</p>
               </div>
-              <div class="flex flex-col sm:flex-row gap-3">
-                <div class="flex items-center"><UTooltip text="Bawaannya disembunyikan: item yang semua situs pemakainya sudah tidak aktif">
-                  <UToggle v-model="showInactive" /><span class="ml-2 text-sm text-slate-400">Tampilkan dari situs tidak aktif</span>
-                </UTooltip></div>
+              <div class="flex flex-wrap items-center gap-2">
+                <FilterToggle v-model="showInactive" label="Termasuk situs tidak aktif" icon="i-lucide-power-off"
+                  hint="Bawaannya disembunyikan: item yang semua situs pemakainya sudah tidak aktif" />
                 <UInput v-model="linkSearch" icon="i-lucide-search" placeholder="Cari domain / URL..." class="sm:w-72" />
-                <div class="flex gap-1.5">
-                  <UButton v-for="lt in linkTypeOpts" :key="lt.value" :label="lt.label"
-                    :color="linkTypeFilter === lt.value ? lt.color : 'gray'" :variant="linkTypeFilter === lt.value ? 'soft' : 'ghost'"
-                    @click="linkTypeFilter = lt.value; linkPage = 1" />
-                </div>
+                <SegmentedControl :model-value="linkTypeFilter" :options="linkTypeOpts" @update:model-value="v => { linkTypeFilter = v; linkPage = 1 }" />
               </div>
             </div>
           </template>
@@ -373,7 +371,7 @@ function lookupTypeFor(platform: string) {
 
 const linkTypeOpts = [
   { value: '',         label: 'Semua',    color: 'primary' },
-  { value: 'external', label: 'External', color: 'cyan' },
+  { value: 'external', label: 'External', color: 'sky' },
   { value: 'iframe',   label: 'Iframe',   color: 'amber' },
   { value: 'register', label: 'Register', color: 'emerald' },
 ] as const

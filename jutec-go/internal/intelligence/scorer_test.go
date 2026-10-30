@@ -84,3 +84,34 @@ func TestTemplateIsNotGameProvider(t *testing.T) {
 		t.Fatalf("skor %.2f — kemiripan template terbaca sebagai provider game", s.Final)
 	}
 }
+
+// Landing page judol: konten kuat tanpa rekening/provider tetap judol (bukan "High tapi bukan judi")
+func TestStrongContentLandingIsGambling(t *testing.T) {
+	a := &crawler.AnalysisResult{Confidence: 0.75, FoundKeywords: []string{"slot", "gacor", "bandar", "togel"}, NetworkSignals: &crawler.NetworkSignals{}}
+	s := Compute(a, 0.2, "https://indo303ku.pages.dev", 0, 0)
+	if !s.IsGambling || s.Priority != "High" {
+		t.Fatalf("landing page judol: gambling=%v prio=%s rule=%s", s.IsGambling, s.Priority, s.Rule)
+	}
+	// Situs institusi dengan konten serupa (mis. berita pemberantasan judol) tetap jalur ketat
+	s = Compute(a, 0.2, "https://kominfo.go.id/berita", 0, 0)
+	if s.IsGambling {
+		t.Fatal("situs pemerintah tanpa bukti teknis tidak boleh divonis judol")
+	}
+}
+
+func TestInjectedSites(t *testing.T) {
+	// Halaman susupan di domain kampus: konten kuat di sub-path judol, tanpa rekening
+	a := &crawler.AnalysisResult{Confidence: 0.8, FoundKeywords: []string{"slot gacor", "maxwin", "togel"}}
+	if s := Compute(a, 0, "https://fkip.contoh.ac.id/wp-content/slot-gacor/", 0, 0); !s.IsGambling || s.Rule != "injected" {
+		t.Errorf("halaman susupan ac.id harus judol (injected), dapat %+v", s)
+	}
+	// Berita pemberantasan judol di beranda pemerintah tetap bukan judol
+	if s := Compute(a, 0, "https://kominfo.contoh.go.id/", 0, 0); s.IsGambling {
+		t.Errorf("beranda go.id tanpa tanda susupan tidak boleh judol: %+v", s)
+	}
+	// Cloaking di domain biasa
+	b := &crawler.AnalysisResult{Confidence: 0.3, Injection: &crawler.Injection{Detected: true, Signals: []string{"cloaking"}}}
+	if s := Compute(b, 0, "https://rumahsakit-contoh.co.id/", 0, 0); !s.IsGambling || s.Priority != "High" {
+		t.Errorf("cloaking harus judol High: %+v", s)
+	}
+}

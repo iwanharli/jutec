@@ -1,0 +1,1 @@
+ALTER TABLE sites DROP COLUMN IF EXISTS tp_listed, DROP COLUMN IF EXISTS tp_listed_since, DROP COLUMN IF EXISTS tp_checked_at;

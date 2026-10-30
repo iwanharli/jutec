@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"os"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -51,7 +52,7 @@ func (s *GoogleScraper) Search(keyword string) ([]string, error) {
 // Setiap halaman = 1 API credit, menghasilkan ~10 organic results.
 // pages=0 berarti tanpa limit (sampai habis, max 10 halaman safety).
 func (s *GoogleScraper) SearchPages(keyword string, pages int) ([]string, error) {
-	if s.APIKey == "" && s.SerpApiKey == "" {
+	if s.APIKey == "" && s.SerpApiKey == "" && os.Getenv("BRAVE_API_KEY") == "" {
 		return nil, fmt.Errorf("serper api key is not configured")
 	}
 
@@ -61,7 +62,7 @@ func (s *GoogleScraper) SearchPages(keyword string, pages int) ([]string, error)
 
 	var allRawURLs []string
 
-	for page := 1; page <= pages; page++ {
+	for page := 1; page <= pages && (s.APIKey != "" || s.SerpApiKey != ""); page++ {
 		if !s.serperAvailable() {
 			links, ok := s.serpApiPage(keyword, page)
 			if !ok || len(links) == 0 {
@@ -124,8 +125,11 @@ func (s *GoogleScraper) SearchPages(keyword string, pages int) ([]string, error)
 		}
 	}
 
+	google := len(allRawURLs)
+	brave := braveSearch(keyword, pages)
+	allRawURLs = append(allRawURLs, brave...)
 	cleaned := s.cleanURLs(allRawURLs)
-	log.Printf("🔎 [Serper] Keyword: '%s' | Raw: %d | Unique: %d", keyword, len(allRawURLs), len(cleaned))
+	log.Printf("🔎 [Serper] Keyword: '%s' | Google: %d · Brave: %d | Unique: %d", keyword, google, len(brave), len(cleaned))
 	return cleaned, nil
 }
 
@@ -211,6 +215,22 @@ func IsInstitutionalHost(host string) bool {
 	return false
 }
 
+// KeepsInjectedPath: domain yang hasil pencarian judolnya hampir selalu halaman SUSUPAN —
+// institusi, plus organisasi/perusahaan/pesantren Indonesia (.or.id, .co.id, .ponpes.id, .web.id).
+func KeepsInjectedPath(host string) bool {
+	if IsInstitutionalHost(host) {
+		return true
+	}
+	labels := strings.Split(strings.ToLower(strings.TrimSuffix(host, ".")), ".")
+	if n := len(labels); n >= 3 && labels[n-1] == "id" {
+		switch labels[n-2] {
+		case "or", "co", "ponpes", "web":
+			return true
+		}
+	}
+	return false
+}
+
 func (s *GoogleScraper) cleanURLs(input []string) []string {
 	unique := make(map[string]bool)
 	perHost := map[string]int{}
@@ -237,7 +257,7 @@ func (s *GoogleScraper) cleanURLs(input []string) []string {
 			// Situs institusi (pemerintah/kampus/sekolah) yang muncul di pencarian judol hampir selalu
 			// berisi halaman judol SUSUPAN (situs dibobol) — berandanya bersih. Pertahankan URL halamannya.
 			target := fmt.Sprintf("%s://%s", u.Scheme, u.Host)
-			if IsInstitutionalHost(u.Hostname()) && u.Path != "" && u.Path != "/" {
+			if KeepsInjectedPath(u.Hostname()) && u.Path != "" && u.Path != "/" {
 				if perHost[u.Hostname()] >= maxPagesPerInstitution {
 					continue
 				}

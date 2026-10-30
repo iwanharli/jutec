@@ -31,8 +31,10 @@
             <h2 class="section-title">Riwayat Aktivitas</h2>
             <p class="section-desc">{{ total.toLocaleString('id-ID') }} catatan</p>
           </div>
-          <UInput v-model="q" icon="i-lucide-search" placeholder="Cari nama, aksi, atau target…" class="lg:w-80" />
-          <USelect v-model="preset" :options="presets" class="lg:w-56" />
+          <div class="flex flex-wrap items-center gap-2">
+            <UInput v-model="q" icon="i-lucide-search" placeholder="Cari nama, aksi, atau target…" class="w-full sm:w-80" />
+            <USelect v-model="preset" :options="presets" icon="i-lucide-calendar" class="w-full sm:w-56" />
+          </div>
         </div>
       </template>
 

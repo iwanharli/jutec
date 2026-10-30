@@ -40,6 +40,7 @@
 </template>
 
 <script setup lang="ts">
+const { confirm } = useConfirm()
 import type { Confidence } from '~/utils/siteAnalysis'
 const props = defineProps<{ items: any[]; empty: string; max?: number; confidence?: (a: any) => Confidence }>()
 const emit = defineEmits<{ (e: 'lookup', a: any): void }>()
@@ -93,8 +94,10 @@ function actions(a: any): Action[] {
   }
   if (a.kind === 'app') {
     acts.push({ label: 'Unduh APK', icon: 'i-lucide-download', color: 'amber', onClick: () => {
-      if (confirm('File APK dari situs judol bisa berbahaya. Unduh hanya untuk dianalisis di lingkungan terisolasi (sandbox/emulator). Lanjutkan?'))
-        window.open(a.value, '_blank', 'noopener')
+      confirm({ title: 'Unduh file APK?', tone: 'warning', icon: 'i-lucide-shield-alert', confirmLabel: 'Saya mengerti, unduh',
+        description: 'APK dari situs judol bisa berisi malware (pencuri SMS/OTP, akses layar, dan sejenisnya).',
+        details: ['Jangan dipasang di HP pribadi atau kantor', 'Analisis hanya di lingkungan terisolasi (sandbox/emulator)'] })
+        .then(ok => ok && window.open(a.value, '_blank', 'noopener'))
     } })
   }
   if (a.kind === 'ip') acts.push({ label: 'Info IP', icon: 'i-lucide-map-pin', to: `https://ipinfo.io/${a.value}`, external: true })

@@ -85,7 +85,7 @@
               <p class="text-[11px] text-slate-500">gagal diakses (vonis lama tetap)</p>
             </div>
           </div>
-          <p class="text-[12px] text-slate-500">Dimulai {{ fmtTime(rescan.job.started_at) }} oleh {{ rescan.job.by }} · berjalan di worker, halaman ini boleh ditutup.</p>
+          <p class="text-[12px] text-slate-500">Dimulai {{ fmtTime(rescan.job.started_at) }} oleh {{ rescan.job.by }} · berjalan di latar belakang, halaman ini boleh ditutup.</p>
           <UButton v-if="!rescan.running" size="sm" color="gray" variant="soft" icon="i-lucide-rotate-ccw" label="Scan ulang lagi" @click="rescan = null" />
         </div>
 
@@ -107,7 +107,7 @@
             <UButton icon="i-lucide-play" :label="`Scan ulang ${counts[scope] ?? ''} situs`" :loading="starting" :disabled="!counts[scope] || !summary?.worker" @click="startRescan" />
             <span class="text-[12px] text-slate-500">±{{ estimate }} · 5 situs bersamaan</span>
           </div>
-          <p v-if="summary && !summary.worker" class="text-[12px] text-amber-400">Worker background (Redis) tidak aktif — scan ulang tidak bisa dijalankan.</p>
+          <p v-if="summary && !summary.worker" class="text-[12px] text-amber-400">Layanan latar belakang sedang tidak aktif — scan ulang belum bisa dijalankan.</p>
         </div>
       </UCard>
     </div>
@@ -115,6 +115,7 @@
 </template>
 
 <script setup lang="ts">
+const { confirm } = useConfirm()
 const { get, post } = useApi()
 const toast = useToast()
 
@@ -158,7 +159,9 @@ async function loadFake() {
   finally { loadingFake.value = false }
 }
 async function clean() {
-  if (!confirm(`Hapus ${picked.value.size} rekening palsu? Datanya disalin dulu ke tabel cadangan (artifact_cleanup_backup).`)) return
+  if (!(await confirm({ title: `Hapus ${picked.value.size} rekening palsu?`, tone: 'danger', confirmLabel: 'Hapus',
+    description: 'Rekening ini dilepas dari semua situs dan tidak lagi dihitung di skor maupun peringkat.',
+    details: ['Datanya disalin dulu ke tabel cadangan artifact_cleanup_backup', 'Hanya angka yang gagal aturan terbaru yang dihapus'] }))) return
   cleaning.value = true
   try {
     const r = await post<any>('/maintenance/artifacts/clean', { ids: [...picked.value] })
@@ -172,7 +175,9 @@ async function loadRescan() {
   if (!rescan.value?.job) rescan.value = null
 }
 async function startRescan() {
-  if (!confirm(`Scan ulang ${counts.value[scope.value]} situs dengan engine terbaru? Berjalan di latar belakang (±${estimate.value}).`)) return
+  if (!(await confirm({ title: `Scan ulang ${counts.value[scope.value]} situs?`, icon: 'i-lucide-refresh-ccw-dot', confirmLabel: 'Mulai scan ulang',
+    description: `${scopeLabel(scope.value)} dinilai ulang dengan engine terbaru — perkiraan ±${estimate.value}.`,
+    details: ['Berjalan di latar belakang; halaman boleh ditutup', 'Situs yang sudah diverifikasi manual tidak diubah', 'Situs yang gagal diakses tetap memegang vonis lamanya'] }))) return
   starting.value = true
   try {
     const r = await post<any>('/maintenance/rescan', { scope: scope.value })

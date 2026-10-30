@@ -61,7 +61,8 @@ type Overview struct {
 		Total           int `json:"total"`
 	} `json:"kpi"`
 	Actions struct {
-		Unverified   ActionList         `json:"unverified"`    // High beroperasi, belum dikonfirmasi analis
+		Unverified   ActionList         `json:"unverified"`    // perlu analis: judol beroperasi, bukti lemah/sedang
+		ReadyBlock   ActionList         `json:"ready_block"`   // siap diajukan blokir: judol pasti + bukti forensik + masih online
 		Revived      ActionList         `json:"revived"`       // hidup lagi ≤30 hari
 		BlockedAlive ActionList         `json:"blocked_alive"` // diblokir ISP tapi masih melayani
 		NoEvidence   ActionList         `json:"no_evidence"`   // High beroperasi tanpa bukti forensik
@@ -126,8 +127,17 @@ func (db *PostgresDB) GetOverview(ctx context.Context) (*Overview, error) {
 		WHERE a.type IN ('Bank','E-Wallet','VirtualAccount','QRIS','Crypto') AND s.is_gambling AND `+liveSite).Scan(&k.ActiveMoney)
 
 	if o.Actions.Unverified, err = db.actionList(ctx,
-		`s.is_gambling AND s.priority = 'High' AND s.verified_status IS NULL AND `+liveSite,
+		`s.is_gambling AND s.verified_status IS NULL AND NOT `+StrongEvidenceSQL+` AND `+liveSite,
 		`s.created_at`, `s.confidence DESC, s.created_at DESC`); err != nil {
+		return nil, err
+	}
+	// Judol pasti (diverifikasi analis atau bukti kuat) + bukti forensik ada + masih bisa diakses biasa (belum diblokir)
+	if o.Actions.ReadyBlock, err = db.actionList(ctx,
+		`s.is_gambling AND s.verified_status IS DISTINCT FROM 'bukan_judol'
+		 AND (s.verified_status = 'judol' OR `+StrongEvidenceSQL+`)
+		 AND EXISTS (SELECT 1 FROM evidence_captures e WHERE e.site_id = s.id AND e.status = 'done')
+		 AND COALESCE(s.reach_status, 'online') = 'online' AND NOT COALESCE(s.tp_listed, false) AND `+liveSite,
+		`s.created_at`, `s.priority = 'High' DESC, s.confidence DESC`); err != nil {
 		return nil, err
 	}
 	if o.Actions.Revived, err = db.actionList(ctx,

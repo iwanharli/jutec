@@ -14,7 +14,7 @@ type Setting struct {
 }
 
 func (db *PostgresDB) GetAllSettings(ctx context.Context) ([]Setting, error) {
-	rows, err := db.Pool.Query(ctx, `SELECT key, value, description, updated_at FROM settings ORDER BY key`)
+	rows, err := db.Pool.Query(ctx, `SELECT key, value, description, updated_at FROM settings WHERE key NOT LIKE 'secret:%' ORDER BY key`)
 	if err != nil {
 		return nil, err
 	}
