@@ -188,6 +188,12 @@ func (c *Crawler) process(url string, dbKeywords []WeightedKeyword, depth int, m
 	if mobilePass && inj == nil {
 		inj = c.DetectSubdomainAbuse(ctx, url, result, dbKeywords)
 	}
+	if hiddenSpam != nil && reJudolHost.MatchString(strings.Split(hostOnly(finalURL), ".")[0]) {
+		if inj == nil {
+			inj = &Injection{}
+		}
+		inj.OwnJudolName = true
+	}
 	result.Injection = finalizeInjection(inj, hiddenSpam)
 	if result.Injection != nil && result.Injection.Detected {
 		log.Printf("  🕳️  [Injection] %v · tersembunyi %d/%d · cloak %q", result.Injection.Signals, result.Injection.HiddenLinks, result.Injection.JudolLinks, result.Injection.CloakVia)

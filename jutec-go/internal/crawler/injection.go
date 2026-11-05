@@ -34,6 +34,7 @@ type Injection struct {
 	ParentTitle    string   `json:"parent_title,omitempty"`   // judul beranda induk (identitas pemilik sah)
 	SiblingHosts   []string `json:"sibling_hosts,omitempty"`  // subdomain saudara bernama judol yang terdaftar di DNS (gacor-1…N)
 	SubdomainAbuse bool     `json:"-"`
+	OwnJudolName   bool     `json:"-"`            // domain sendiri bernama judol → bukan korban
 	HiddenLinks    int      `json:"hidden_links"` // link judol tersembunyi ke domain lain
 	JudolLinks     int      `json:"judol_links"`  // semua link judol ke domain lain
 	HiddenSamples  []string `json:"hidden_samples,omitempty"`
@@ -117,6 +118,11 @@ func fetchAs(ctx context.Context, rawURL, ua, referer string) (string, string) {
 func (c *Crawler) checkCloaking(ctx context.Context, rawURL string, base *AnalysisResult, kws []WeightedKeyword) (*Injection, *AnalysisResult) {
 	baseKW := len(base.FoundKeywords)
 	baseHost := hostOnly(rawURL)
+	// Cloaking hanya bermakna bila halaman versi pengunjung benar-benar terbaca (bukan diblokir ISP/bot)
+	// dan domainnya bukan nama judol (domain operator bukan korban).
+	if base.Links == nil || base.Links.Total < 10 || reJudolHost.MatchString(strings.Split(baseHost, ".")[0]) {
+		return nil, nil
+	}
 	for _, v := range []struct{ via, ua, ref string }{
 		{"googlebot", googlebotUA, ""},
 		{"referer", "Mozilla/5.0 (Linux; Android 13; SM-A536E) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36", "https://www.google.com/"},
@@ -276,7 +282,7 @@ func finalizeInjection(inj *Injection, hs *hiddenSpamResult) *Injection {
 	if inj.SubdomainAbuse {
 		inj.Signals = append(inj.Signals, "subdomain_abuse")
 	}
-	if inj.HiddenLinks >= 3 && float64(inj.HiddenLinks) >= 0.6*float64(inj.JudolLinks) {
+	if inj.HiddenLinks >= 3 && float64(inj.HiddenLinks) >= 0.6*float64(inj.JudolLinks) && !inj.OwnJudolName {
 		inj.Signals = append(inj.Signals, "hidden_links")
 	}
 	inj.Detected = len(inj.Signals) > 0
