@@ -59,6 +59,7 @@ func SetupRouter(neo4j *store.Neo4jDB, pg *store.PostgresDB, serperKey string, s
 	settingsHandler  := handlers.NewSettingsHandler(pg)
 	graphHandler     := handlers.NewGraphHandler(pg)
 	sweepJobHandler  := handlers.NewSweepJobHandler(discoverySvc, pg)
+	sweepJobHandler.StartDailyScheduler()
 	scanHandler      := handlers.NewScanHandler(scanSvc)
 	intelHandler     := handlers.NewIntelligenceHandler(neo4j, pg)
 	discoveryHandler := handlers.NewDiscoveryHandler(discoverySvc, pg)
@@ -113,6 +114,12 @@ func SetupRouter(neo4j *store.Neo4jDB, pg *store.PostgresDB, serperKey string, s
 		data.GET("/telegram", dataHandler.GetTelegram)
 		data.GET("/kominfo", dataHandler.GetKomInfo)
 		data.GET("/dukcapil", dataHandler.GetDukcapil)
+		insights := &handlers.RepoInsightsHandler{PG: pg}
+		data.GET("/shared", insights.Shared)
+		data.GET("/wallets", insights.Wallets)
+		data.GET("/injected", insights.Injected)
+		data.GET("/respawns", insights.Respawns)
+		data.GET("/takeovers", insights.Takeovers)
 	}
 
 	// Scan
@@ -211,6 +218,25 @@ func SetupRouter(neo4j *store.Neo4jDB, pg *store.PostgresDB, serperKey string, s
 	ipHandler := &handlers.IPHandler{PG: pg, URLScanKey: urlscanKey}
 	r.GET("/ips/:ip", ipHandler.Get)
 	evidenceHandler := &handlers.EvidenceHandler{PG: pg, Tasks: taskClient, BaseDir: evidenceDir}
+	probeHandler := &handlers.FormProbeHandler{PG: pg, Tasks: taskClient, BaseDir: evidenceDir}
+	r.POST("/sites/:id/form-probe", probeHandler.Start)
+	r.GET("/sites/:id/form-probes", probeHandler.List)
+	r.GET("/form-probes/:pid", probeHandler.Detail)
+	r.GET("/form-probes/:pid/files/:name", probeHandler.File)
+	r.GET("/data/probe-accounts", probeHandler.Accounts)
+	r.GET("/probe-profiles", probeHandler.Profiles)
+	r.POST("/probe-profiles", probeHandler.SaveProfile)
+	r.PUT("/probe-profiles/:pid", probeHandler.SaveProfile)
+	r.POST("/probe-profiles/:pid/default", probeHandler.DefaultProfile)
+	r.DELETE("/probe-profiles/:pid", probeHandler.DeleteProfile)
+	r.GET("/form-probe-batch/preview", probeHandler.BatchPreview)
+	r.GET("/form-probe-batch/latest", probeHandler.BatchLatest)
+	r.POST("/form-probe-batch", probeHandler.BatchStart)
+	r.GET("/form-probe-batch/:bid", probeHandler.BatchStatus)
+	r.POST("/form-probe-batch/:bid/stop", probeHandler.BatchStop)
+	r.POST("/sites/:id/form-probe/attended", probeHandler.AttendedStart)
+	r.POST("/form-probes/:pid/attended/capture", probeHandler.AttendedCapture)
+	r.POST("/form-probes/:pid/attended/cancel", probeHandler.AttendedCancel)
 	extIntel := &handlers.ExternalIntelHandler{PG: pg, Tasks: taskClient,
 		HT: hackertarget.NewClient(os.Getenv("HACKERTARGET_API_KEY")), Tron: tron.NewClient(os.Getenv("TRONGRID_API_KEY"))}
 	sitesGrp := r.Group("/sites")

@@ -14,6 +14,29 @@
       </div>
     </template>
 
+    <!-- Ruang disk: bukti forensik adalah pemakai terbesar -->
+    <div v-if="disk" class="rounded-xl ring-1 px-3 py-2.5" :class="disk.low ? 'bg-rose-500/10 ring-rose-500/30' : 'bg-slate-950/50 ring-slate-800'">
+      <div class="flex items-center gap-2 text-[12px]" :class="disk.low ? 'text-rose-300' : 'text-slate-400'">
+        <UIcon :name="disk.low ? 'i-lucide-hard-drive-download' : 'i-lucide-hard-drive'" class="w-3.5 h-3.5" />
+        <span class="flex-1">{{ disk.low ? 'Disk hampir penuh — scan & bukti forensik bisa gagal' : 'Ruang disk' }}</span>
+        <span class="tabular-nums">{{ disk.free_gb.toFixed(1) }} GB bebas</span>
+      </div>
+      <div class="h-1.5 rounded-full bg-slate-800 overflow-hidden mt-2">
+        <div class="h-full rounded-full" :class="disk.low ? 'bg-rose-500' : 'bg-primary-500'" :style="{ width: `${Math.min(100, 100 - (disk.free_gb / disk.total_gb) * 100)}%` }" />
+      </div>
+      <p class="text-[11px] text-slate-500 mt-1.5">Bukti forensik: {{ disk.evidence_mb >= 1024 ? `${(disk.evidence_mb / 1024).toFixed(1)} GB` : `${Math.round(disk.evidence_mb)} MB` }}</p>
+    </div>
+
+    <!-- Deep Sweep harian -->
+    <div v-if="sys.daily_sweep" class="flex items-center gap-2.5 rounded-xl bg-slate-950/50 ring-1 ring-slate-800 px-3 py-2.5 text-[13px]">
+      <UIcon name="i-lucide-moon" class="w-4 h-4 shrink-0" :class="sys.daily_sweep.enabled ? 'text-indigo-400' : 'text-slate-600'" />
+      <span class="flex-1 text-slate-300">
+        Deep Sweep harian
+        <span class="text-slate-500">· {{ sys.daily_sweep.enabled ? `pukul ${String(sys.daily_sweep.hour).padStart(2, '0')}.00, ${sys.daily_sweep.keywords} keyword` : 'nonaktif' }}</span>
+      </span>
+      <span class="text-[11px] text-slate-500">{{ sys.daily_sweep.last ? `terakhir ${sys.daily_sweep.last}` : 'belum pernah' }}</span>
+    </div>
+
     <!-- Antrean: ubin per jenis pekerjaan -->
     <div>
       <p class="label">Antrean pekerjaan</p>
@@ -84,6 +107,8 @@ const JOBS: Record<string, { label: string; icon: string }> = {
   'auto:crypto': { label: 'Jejak dana USDT', icon: 'i-lucide-bitcoin' },
   'auto:trustpositif': { label: 'Cek daftar blokir Komdigi', icon: 'i-lucide-shield-ban' },
   'auto:commoncrawl': { label: 'Cari situs susupan (arsip web)', icon: 'i-lucide-archive' },
+  'auto:takeover': { label: 'Cek riwayat domain (domain bekas)', icon: 'i-lucide-history' },
+  'auto:evidence-retention': { label: 'Kebijakan simpan bukti', icon: 'i-lucide-archive-x' },
   'mirror:watch': { label: 'Cari mirror brand', icon: 'i-lucide-copy-plus' },
   'telegram:resolve': { label: 'Cek akun Telegram', icon: 'i-lucide-send' },
   'telegram:scrape': { label: 'Baca pesan kanal Telegram', icon: 'i-lucide-messages-square' },
@@ -94,7 +119,8 @@ const queues = computed(() => (props.sys.queues ?? []).map((q: any) => ({
   ...q, ...(QUEUES[q.name] ?? { label: q.name, icon: 'i-lucide-list' }), waiting: q.pending + q.scheduled + q.retry,
 })))
 const busy = computed(() => queues.value.reduce((n: number, q: any) => n + q.active, 0))
-const healthy = computed(() => !!props.sys.redis && props.sys.servers > 0 && !queues.value.some((q: any) => q.failed_today > 10))
+const healthy = computed(() => !!props.sys.redis && props.sys.servers > 0 && !queues.value.some((q: any) => q.failed_today > 10) && !props.sys.disk?.low)
+const disk = computed(() => props.sys?.disk)
 
 function every(spec: string) {
   const m = /@every\s+(\d+)([hm])/.exec(spec)

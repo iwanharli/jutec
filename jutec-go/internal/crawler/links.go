@@ -238,6 +238,8 @@ var knownShorteners = []string{
 	// Umum di situs judol Indonesia (tombol DAFTAR/LOGIN anti-blokir)
 	"jali.me", "jaga.link", "ronic.link", "bit.do", "ow.ly", "kutt.it", "shorturl.asia",
 	"cutt.us", "u.to", "clck.ru", "goo.su", "tny.im", "linkr.it", "bitly.ws",
+	// Dipakai halaman judol susupan (cloaking) sebagai tombol DAFTAR
+	"preciseurl.co", "linkfly.to", "lynk.id", "heylink.me", "linktr.ee", "allmylinks.com", "bio.link", "msha.ke", "taplink.cc",
 }
 
 // wrapperDomains adalah domain yang menyembunyikan URL asli di query param.
@@ -470,6 +472,12 @@ func resolveURL(link, base string) string {
 		return link
 	}
 
+	// Skema non-web (skype:, mailto:, tel:, whatsapp:, intent:, javascript:…) bukan halaman —
+	// jangan sampai dianggap domain lalu diberi "https://" (skype:live:.cid… → https://skype:live…).
+	if i := strings.Index(link, ":"); i > 0 && reScheme.MatchString(link[:i]) && (i+1 >= len(link) || link[i+1] < '0' || link[i+1] > '9') {
+		return ""
+	}
+
 	// Bare domain detection: "domain.com/path" tanpa protocol
 	// Heuristic: ada titik di bagian pertama dan tidak dimulai dengan "/"
 	// Nama file relatif ("Register.aspx", "login.php") bukan domain — dikenali dari ekstensinya.
@@ -509,3 +517,5 @@ func mapKeys(m map[string]bool) []string {
 	}
 	return keys
 }
+
+var reScheme = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*$`)

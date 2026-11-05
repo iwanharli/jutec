@@ -89,3 +89,41 @@ func scanTargets(rows interface {
 	}
 	return out, nil
 }
+
+type RetentionItem struct {
+	ID  int
+	Dir string
+}
+
+// EvidenceRetentionCandidates: bukti situs yang tidak aktif > days hari, bukan bagian kasus,
+// dan situsnya tidak diverifikasi judol oleh analis.
+func (db *PostgresDB) EvidenceRetentionCandidates(ctx context.Context, days, limit int) ([]RetentionItem, error) {
+	rows, err := db.Pool.Query(ctx, `
+		SELECT e.id, e.dir FROM evidence_captures e JOIN sites s ON s.id = e.site_id
+		WHERE e.status = 'done' AND COALESCE(e.dir, '') <> ''
+		  AND site_lifecycle(s.reach_status, s.status, s.offline_since) = 'inactive'
+		  AND COALESCE(s.offline_since, s.last_scanned_at) < NOW() - make_interval(days => $1)
+		  AND s.verified_status IS DISTINCT FROM 'judol'
+		  AND NOT EXISTS (SELECT 1 FROM case_items c WHERE (c.kind = 'evidence' AND c.ref = e.id::text) OR (c.kind = 'site' AND c.ref = s.id::text))
+		ORDER BY e.id LIMIT $2`, days, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RetentionItem
+	for rows.Next() {
+		var r RetentionItem
+		if rows.Scan(&r.ID, &r.Dir) == nil {
+			out = append(out, r)
+		}
+	}
+	return out, rows.Err()
+}
+
+// MarkEvidencePurged: file dihapus kebijakan simpan; catatan & manifest_sha256 tetap ada sebagai jejak.
+func (db *PostgresDB) MarkEvidencePurged(ctx context.Context, id, days int) error {
+	_, err := db.Pool.Exec(ctx, `UPDATE evidence_captures SET status = 'purged',
+		error = 'File dihapus otomatis (kebijakan simpan ' || $2 || ' hari, situs tidak aktif). Hash SHA-256 manifest tetap tercatat.'
+		WHERE id = $1`, id, days)
+	return err
+}

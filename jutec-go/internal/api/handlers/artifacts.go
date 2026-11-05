@@ -61,12 +61,12 @@ func (h *ArtifactHandler) TopShared(c *gin.Context) {
 	artifactName := c.Query("name")
 	limit := 50
 	if l := c.Query("limit"); l != "" {
-		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 200 {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 1000 {
 			limit = n
 		}
 	}
 
-	results, err := h.PG.GetTopArtifactsFiltered(c.Request.Context(), artifactType, artifactName, limit, c.Query("include_inactive") == "1")
+	results, err := h.PG.GetTopArtifactsFiltered(c.Request.Context(), artifactType, artifactName, limit, c.Query("include_inactive") == "1", c.Query("shared") == "1")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

@@ -3,12 +3,45 @@ package leakosint
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"regexp"
+	"strconv"
+	"sync"
 	"time"
 )
+
+var (
+	// ErrCooldown: LeakOSINT meminta jeda (terlalu banyak permintaan). Jangan tandai nomor sebagai gagal — ulangi nanti.
+	ErrCooldown = errors.New("leakosint: sedang jeda dari server, coba lagi nanti")
+	// ErrInvalidPhone: bukan nomor HP Indonesia — tidak dikirim, karena permintaan tak valid membuat token diblokir sementara.
+	ErrInvalidPhone = errors.New("leakosint: bukan nomor HP Indonesia yang valid")
+
+	reIDMobile = regexp.MustCompile(`^628[1-9][0-9]{6,10}$`)
+	reWait     = regexp.MustCompile(`again in (\d+) seconds`)
+
+	// Jeda bersama untuk semua klien (handler manual & enricher otomatis memakai token yang sama)
+	cooldownMu    sync.Mutex
+	cooldownUntil time.Time
+)
+
+func inCooldown() bool {
+	cooldownMu.Lock()
+	defer cooldownMu.Unlock()
+	return time.Now().Before(cooldownUntil)
+}
+
+func setCooldown(d time.Duration) {
+	cooldownMu.Lock()
+	if t := time.Now().Add(d); t.After(cooldownUntil) {
+		cooldownUntil = t
+	}
+	cooldownMu.Unlock()
+	log.Printf("⏸️  [LeakOSINT] Jeda %s atas permintaan server", d.Round(time.Second))
+}
 
 const apiURL = "https://leakosintapi.com/"
 
@@ -79,6 +112,12 @@ func (c *Client) Lookup(phone string) (*LookupResult, error) {
 	}
 
 	phone = normalizePhone(phone)
+	if !reIDMobile.MatchString(phone) {
+		return nil, ErrInvalidPhone
+	}
+	if inCooldown() {
+		return nil, ErrCooldown
+	}
 
 	payload, _ := json.Marshal(apiRequest{
 		Token:   c.Token,
@@ -98,6 +137,15 @@ func (c *Client) Lookup(phone string) (*LookupResult, error) {
 	}
 
 	if resp.StatusCode != 200 {
+		if m := reWait.FindSubmatch(body); m != nil {
+			n, _ := strconv.Atoi(string(m[1]))
+			setCooldown(time.Duration(n+5) * time.Second)
+			return nil, ErrCooldown
+		}
+		if resp.StatusCode == 429 {
+			setCooldown(time.Minute)
+			return nil, ErrCooldown
+		}
 		return nil, fmt.Errorf("leakosint api error %d: %s", resp.StatusCode, string(body))
 	}
 

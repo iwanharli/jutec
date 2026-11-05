@@ -516,8 +516,22 @@ func (s *ScanService) persistToPostgres(ctx context.Context, url string, analysi
 			log.Printf("⚠️  [Postgres] Failed to save auth surface: %v", err)
 		}
 	}
+	market := ""
+	if score.IsGambling {
+		market = crawler.Market(analysis, url)
+	}
+	s.PG.SaveMarket(dbCtx, siteID, market)
 	if err := s.PG.SaveInjection(dbCtx, siteID, analysis.Injection, analysis.Injection != nil && analysis.Injection.Detected); err != nil {
 		log.Printf("⚠️  [Postgres] Failed to save injection: %v", err)
+	}
+	// Situs korban penyusupan: tujuan judol dari versi tersembunyi (situs operator) dianalisis otomatis
+	if inj := analysis.Injection; inj != nil && inj.Detected && s.TaskClient != nil {
+		for _, target := range inj.CloakTargets {
+			payload, _ := json.Marshal(map[string]string{"url": target})
+			if _, err := s.TaskClient.Enqueue(asynq.NewTask("scan:url", payload), asynq.Queue("default"), asynq.MaxRetry(1), asynq.Unique(24*time.Hour)); err == nil {
+				log.Printf("  🎯 [Injection] Tujuan %s (%s) diantrekan untuk dianalisis", target, inj.CloakBrand)
+			}
+		}
 	}
 	if err := s.PG.SaveInternalPages(dbCtx, siteID, analysis.InternalPages); err != nil {
 		log.Printf("⚠️  [Postgres] Failed to save internal pages: %v", err)

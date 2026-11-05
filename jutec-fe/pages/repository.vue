@@ -37,12 +37,24 @@
         <SitesTable v-if="activeTab === 'sites'" title="Semua Situs" />
 
         <!-- ── ARTEFAK ── -->
+        <RepoSharedTab v-else-if="activeTab === 'infra'" title="Infrastruktur" icon="i-lucide-server" icon-bg="bg-sky-500/10 ring-sky-500/25" icon-color="text-sky-400"
+          desc="Hosting, nameserver, sertifikat & sidik jari yang menampung banyak situs judol — bahan laporan ke penyedia hosting"
+          placeholder="Cari IP, ASN, host, sidik jari…"
+          :kinds="[{ value: 'asn', label: 'Hosting (ASN)' }, { value: 'ip', label: 'IP' }, { value: 'ns', label: 'Nameserver' }, { value: 'ssl', label: 'SSL' }, { value: 'fingerprint', label: 'Sidik jari' }]" />
+        <RepoWalletsTab v-else-if="activeTab === 'wallets'" />
+        <RepoInjectedTab v-else-if="activeTab === 'injected'" />
+        <RepoRespawnTab v-else-if="activeTab === 'respawn'" />
+        <RepoTakeoverTab v-else-if="activeTab === 'takeover'" />
+        <RepoSharedTab v-else-if="activeTab === 'referral'" title="Kode Referral & Afiliasi" icon="i-lucide-ticket" icon-bg="bg-emerald-500/10 ring-emerald-500/25" icon-color="text-emerald-400"
+          desc="Kode referral yang sama di banyak situs = jaringan pemasaran/afiliasi yang sama" placeholder="Cari kode…" :kinds="[{ value: 'referral', label: 'Referral' }]" />
+        <RepoSharedTab v-else-if="activeTab === 'images'" title="Banner & Gambar Bersama" icon="i-lucide-image" icon-bg="bg-pink-500/10 ring-pink-500/25" icon-color="text-pink-400"
+          desc="Gambar yang dipakai ulang di banyak situs — penanda template/operator yang sama" placeholder="Cari URL atau domain gambar…" :kinds="[{ value: 'image', label: 'Gambar' }]" />
         <UCard v-else-if="activeTab === 'artifacts'">
           <template #header>
             <div class="flex flex-col lg:flex-row lg:items-center gap-4">
               <div class="flex-1">
                 <h2 class="section-title">Artefak Transaksi</h2>
-                <p class="section-desc">Rekening, wallet, kontak, dan QRIS yang dipakai bersama oleh banyak situs</p>
+                <p class="section-desc">Rekening, wallet, kontak, dan QRIS dari situs judol — yang dipakai banyak situs ditampilkan lebih dulu</p>
               </div>
               <div class="flex flex-wrap items-center gap-2">
                 <USelect v-model="artType" :options="[{ label: 'Semua Tipe', value: '' }, ...artTypeOptions.map(t => ({ label: t, value: t }))]"
@@ -50,6 +62,8 @@
                 <USelect v-if="artType && artNameOptions.length" v-model="artName"
                   :options="[{ label: 'Semua Nama', value: '' }, ...artNameOptions.map(n => ({ label: n, value: n }))]"
                   class="w-48" @change="loadArtifacts()" />
+                <FilterToggle v-model="artSharedOnly" label="Dipakai >1 situs" icon="i-lucide-copy"
+                  hint="Hanya artefak yang muncul di beberapa situs — pola satu operator" />
                 <FilterToggle v-model="showInactive" label="Termasuk situs tidak aktif" icon="i-lucide-power-off"
                   hint="Bawaannya disembunyikan: item yang semua situs pemakainya sudah tidak aktif" />
                 <span class="h-9 inline-flex items-center rounded-lg bg-slate-800/60 px-3 text-sm tabular-nums text-slate-300">{{ artifacts.length }} artefak</span>
@@ -346,6 +360,13 @@ const tabs = [
   { value: 'apps',      label: 'Aplikasi',     icon: 'i-lucide-smartphone' },
   { value: 'tracking',  label: 'Tracking ID',  icon: 'i-lucide-radio-tower' },
   { value: 'operators', label: 'Operator',     icon: 'i-lucide-users' },
+  { value: 'infra',     label: 'Infrastruktur', icon: 'i-lucide-server' },
+  { value: 'wallets',   label: 'Dompet Kripto', icon: 'i-lucide-coins' },
+  { value: 'injected',  label: 'Situs Susupan', icon: 'i-lucide-syringe' },
+  { value: 'respawn',   label: 'Domain Respawn', icon: 'i-lucide-repeat' },
+  { value: 'takeover',  label: 'Domain Bekas',  icon: 'i-lucide-history' },
+  { value: 'referral',  label: 'Referral',      icon: 'i-lucide-ticket' },
+  { value: 'images',    label: 'Banner',        icon: 'i-lucide-image' },
   { value: 'links',     label: 'Link Eksternal', icon: 'i-lucide-link' },
   { value: 'telegram',  label: 'Telegram',     icon: 'i-lucide-send' },
   { value: 'kominfo',   label: 'KomInfo',      icon: 'i-lucide-card-sim' },
@@ -505,12 +526,16 @@ async function loadArtFilters() {
   } catch {}
 }
 
+const artSharedOnly = ref(false)
+watch(artSharedOnly, () => loadArtifacts())
 async function loadArtifacts() {
   try {
     const d = await get<any>('/data/artifacts', {
       type: artType.value || undefined,
       name: artName.value || undefined,
       include_inactive: showInactive.value ? 1 : undefined,
+      shared: artSharedOnly.value ? 1 : undefined,
+      limit: 500,
     })
     const r = d?.results ?? d ?? []
     artifacts.value = Array.isArray(r) ? r.filter((a: any) => a?.value) : []

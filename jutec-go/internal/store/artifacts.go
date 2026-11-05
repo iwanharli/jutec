@@ -91,7 +91,7 @@ func (db *PostgresDB) GetSitesByArtifact(ctx context.Context, artifactType, valu
 	}
 	defer rows.Close()
 
-	var results []ArtifactWithSites
+	results := []ArtifactWithSites{}
 	for rows.Next() {
 		var r ArtifactWithSites
 		if err := rows.Scan(&r.ID, &r.Type, &r.Value, &r.Name, &r.CreatedAt, &r.SiteCount, &r.Sites, &r.ActiveCount, &r.Reappeared); err != nil {
@@ -208,11 +208,12 @@ func (db *PostgresDB) GetArtifactFilters(ctx context.Context) (map[string][]stri
 // Berguna untuk identifikasi operator yang kelola banyak domain.
 // artifactType kosong = semua tipe.
 func (db *PostgresDB) GetTopArtifacts(ctx context.Context, artifactType string, limit int) ([]ArtifactWithSites, error) {
-	return db.GetTopArtifactsFiltered(ctx, artifactType, "", limit, true)
+	return db.GetTopArtifactsFiltered(ctx, artifactType, "", limit, true, true)
 }
 
 // Item yang semua situs pemakainya sudah tidak aktif disembunyikan kecuali includeInactive.
-func (db *PostgresDB) GetTopArtifactsFiltered(ctx context.Context, artifactType, artifactName string, limit int, includeInactive bool) ([]ArtifactWithSites, error) {
+// sharedOnly: hanya artefak yang dipakai >1 situs (pola operator); false = semua, termasuk rekening yang baru muncul di satu situs.
+func (db *PostgresDB) GetTopArtifactsFiltered(ctx context.Context, artifactType, artifactName string, limit int, includeInactive, sharedOnly bool) ([]ArtifactWithSites, error) {
 	filterType := artifactType
 	if filterType == "" {
 		filterType = "%"
@@ -235,11 +236,11 @@ func (db *PostgresDB) GetTopArtifactsFiltered(ctx context.Context, artifactType,
 		  AND a.type LIKE $1
 		  AND COALESCE(a.name,'') LIKE $2
 		GROUP BY a.id
-		HAVING COUNT(DISTINCT sa.site_id) > 1
+		HAVING COUNT(DISTINCT sa.site_id) > CASE WHEN $5 THEN 1 ELSE 0 END
 		   AND ($4 OR COUNT(DISTINCT sa.site_id) FILTER (WHERE site_lifecycle(s.reach_status, s.status, s.offline_since) <> 'inactive') > 0)
 		ORDER BY reappeared DESC, active_count DESC, site_count DESC
 		LIMIT $3
-	`, filterType, filterName, limit, includeInactive)
+	`, filterType, filterName, limit, includeInactive, sharedOnly)
 	if err != nil {
 		return nil, err
 	}

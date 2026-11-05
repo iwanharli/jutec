@@ -173,3 +173,12 @@ func (db *PostgresDB) GetVTBySite(ctx context.Context, siteID int) ([]VTRecord, 
 	}
 	return results, nil
 }
+
+// NeedsURLScan: hanya situs judi yang belum punya hasil pemindai URL dalam 7 hari — hemat kuota URLScan.
+func (db *PostgresDB) NeedsURLScan(ctx context.Context, siteID int) bool {
+	var ok bool
+	db.Pool.QueryRow(ctx, `SELECT COALESCE(s.is_gambling, false) AND NOT EXISTS (
+		SELECT 1 FROM urlscan_results u WHERE u.site_id = s.id AND u.created_at > NOW() - INTERVAL '7 days')
+		FROM sites s WHERE s.id = $1`, siteID).Scan(&ok)
+	return ok
+}

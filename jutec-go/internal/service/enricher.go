@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/url"
 	"strings"
@@ -16,11 +17,11 @@ import (
 // AutoEnricher menjalankan enrichment pasca-sweep secara background.
 // Semua enrichment berjalan di goroutine terpisah — tidak memblokir response sweep.
 type AutoEnricher struct {
-	PG       *store.PostgresDB
-	LeakCl   *leakosint.Client
-	TgSvc    *TelegramService
-	URLScan  *urlscan.Client
-	VT       *virustotal.Client
+	PG      *store.PostgresDB
+	LeakCl  *leakosint.Client
+	TgSvc   *TelegramService
+	URLScan *urlscan.Client
+	VT      *virustotal.Client
 }
 
 func NewAutoEnricher(pg *store.PostgresDB, leak *leakosint.Client, tg *TelegramService,
@@ -75,6 +76,14 @@ func (e *AutoEnricher) enrichLeak(ctx context.Context) {
 		}
 		result, err := e.LeakCl.Lookup(art.Phone)
 		id := art.ID
+		if errors.Is(err, leakosint.ErrCooldown) {
+			log.Printf("⏸️  [AutoEnrich] LeakOSINT minta jeda — sisa %d nomor dilanjutkan putaran berikutnya", len(artifacts)-i)
+			return
+		}
+		if errors.Is(err, leakosint.ErrInvalidPhone) {
+			e.PG.SaveLeakEnrichmentAttempt(ctx, id, art.Phone, "skipped", "bukan nomor HP Indonesia")
+			continue
+		}
 		if err != nil {
 			log.Printf("⚠️  [AutoEnrich] LeakOSINT error %s: %v", art.Phone, err)
 			e.PG.SaveLeakEnrichmentAttempt(ctx, id, art.Phone, "error", err.Error())
@@ -125,7 +134,7 @@ func (e *AutoEnricher) enrichURLScan(ctx context.Context) {
 	// Ambil situs judol yang belum punya data URLScan
 	rows, err := e.PG.Pool.Query(ctx, `
 		SELECT s.id, s.url FROM sites s
-		WHERE s.is_gambling = TRUE
+		WHERE s.is_gambling = TRUE AND COALESCE(s.market, 'id') <> 'intl'
 		  AND NOT EXISTS (SELECT 1 FROM urlscan_results u WHERE u.site_id = s.id)
 		ORDER BY s.confidence DESC
 		LIMIT 100
@@ -135,7 +144,10 @@ func (e *AutoEnricher) enrichURLScan(ctx context.Context) {
 	}
 	defer rows.Close()
 
-	type site struct{ id int; u string }
+	type site struct {
+		id int
+		u  string
+	}
 	var sites []site
 	for rows.Next() {
 		var s site
@@ -149,6 +161,9 @@ func (e *AutoEnricher) enrichURLScan(ctx context.Context) {
 	}
 	log.Printf("🔍 [AutoEnrich] URLScan: %d situs judol akan dicek", len(sites))
 
+	if urlscan.InCooldown() {
+		return
+	}
 	found := 0
 	for i, s := range sites {
 		select {
@@ -161,9 +176,10 @@ func (e *AutoEnricher) enrichURLScan(ctx context.Context) {
 		result, err := e.URLScan.SearchExisting(domain)
 		if err != nil {
 			if err == urlscan.ErrRateLimit {
-				log.Printf("⚠️  [AutoEnrich] URLScan rate limit, berhenti sementara")
-				time.Sleep(60 * time.Second)
-				continue
+				// Lanjut putaran berikutnya — menunggu di sini hanya menahan worker & memicu limit lagi
+				urlscan.SetCooldown(15 * time.Minute)
+				log.Printf("⏸️  [AutoEnrich] URLScan rate limit — jeda 15 menit, sisa %d situs dilanjutkan nanti", len(sites)-i)
+				return
 			}
 			continue
 		}
@@ -223,7 +239,10 @@ func (e *AutoEnricher) enrichVirusTotal(ctx context.Context) {
 	}
 	defer rows.Close()
 
-	type site struct{ id int; u string }
+	type site struct {
+		id int
+		u  string
+	}
 	var sites []site
 	for rows.Next() {
 		var s site

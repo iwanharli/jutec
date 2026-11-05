@@ -17,7 +17,7 @@ type RegisterFormsHandler struct {
 // GET /data/register-forms?scope=valid|verified&q=&field=a,b&bank=&captcha=yes|no&otp=&phone=&need_bank=&external=&live=1
 func (h *RegisterFormsHandler) List(c *gin.Context) {
 	f := store.RegisterFormFilter{
-		Scope: c.Query("scope"), Query: c.Query("q"), Bank: c.Query("bank"),
+		Kind: c.Query("kind"), Pattern: c.Query("pattern"), Scope: c.Query("scope"), Query: c.Query("q"), Bank: c.Query("bank"),
 		Captcha: c.Query("captcha"), OTP: c.Query("otp"), Phone: c.Query("phone"),
 		NeedBank: c.Query("need_bank"), External: c.Query("external"), Live: c.Query("live") == "1",
 	}

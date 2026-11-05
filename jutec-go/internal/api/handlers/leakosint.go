@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	stderrors "errors"
 	"log"
 	"net/http"
 	"regexp"
@@ -197,6 +198,13 @@ func (h *LeakHandler) EnrichAll(c *gin.Context) {
 		log.Printf("[LeakOSINT] Enriching artifact #%d: %s", art.ID, phone)
 
 		result, err := h.Client.Lookup(phone)
+		if stderrors.Is(err, leakosint.ErrCooldown) {
+			break // sisanya diulang otomatis setelah jeda
+		}
+		if stderrors.Is(err, leakosint.ErrInvalidPhone) {
+			h.PG.SaveLeakEnrichmentAttempt(ctx, art.ID, phone, "skipped", "bukan nomor HP Indonesia")
+			continue
+		}
 		if err != nil {
 			log.Printf("[LeakOSINT] Error for %s: %v", phone, err)
 			if markErr := h.PG.SaveLeakEnrichmentAttempt(ctx, art.ID, phone, "error", err.Error()); markErr != nil {

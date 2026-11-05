@@ -93,7 +93,7 @@ type VerifyQueueItem struct {
 // StrongEvidenceSQL: bukti kuat bahwa situs s adalah judol — rekening/e-wallet/QRIS/kripto, provider game,
 // atau tergabung dalam klaster operator. Situs seperti ini dianggap "terkonfirmasi mesin" dan tidak perlu
 // diperiksa analis; antrean verifikasi hanya berisi yang buktinya lemah/sedang.
-const StrongEvidenceSQL = `(EXISTS (SELECT 1 FROM site_artifacts sa JOIN artifacts a ON a.id = sa.artifact_id
+const StrongEvidenceSQL = `(site_injected(s.url, s.injection) OR EXISTS (SELECT 1 FROM site_artifacts sa JOIN artifacts a ON a.id = sa.artifact_id
 		WHERE sa.site_id = s.id AND a.type IN ('Bank','E-Wallet','VirtualAccount','QRIS','Crypto'))
 	OR EXISTS (SELECT 1 FROM site_operators so JOIN operators o ON o.id = so.operator_id AND o.platform = 'Klaster' WHERE so.site_id = s.id)
 	OR COALESCE((SELECT jsonb_array_length(l.result->'result'->'network_signals'->'game_providers') FROM scan_logs l
@@ -131,7 +131,7 @@ func (db *PostgresDB) VerifyQueue(ctx context.Context, priority, sort string, li
 			SELECT l.result->'result'->'found_keywords' AS kw, l.result->'score'->>'rule' AS rule
 			FROM scan_logs l WHERE l.site_id = s.id AND NOT (l.result ? 'error') AND l.result ? 'score'
 			ORDER BY l.created_at DESC LIMIT 1) lk ON true
-		WHERE s.is_gambling AND s.verified_status IS NULL AND ($1 = '' OR s.priority = $1) AND ($4 OR NOT `+StrongEvidenceSQL+`)
+		WHERE s.is_gambling AND COALESCE(s.market, 'id') <> 'intl' AND s.verified_status IS NULL AND ($1 = '' OR s.priority = $1) AND ($4 OR NOT `+StrongEvidenceSQL+`)
 		ORDER BY `+order+`, s.id LIMIT $2 OFFSET $3`, priority, limit, offset, includeStrong)
 	if err != nil {
 		return nil, 0, err
@@ -161,13 +161,13 @@ func (db *PostgresDB) VerifyStats(ctx context.Context) map[string]int {
 	// "pending" = perlu analis (bukti lemah/sedang); bukti kuat dihitung terpisah sebagai terkonfirmasi mesin
 	var e, f, m int
 	db.Pool.QueryRow(ctx, `SELECT
-		COUNT(*) FILTER (WHERE s.is_gambling AND s.verified_status IS NULL AND NOT strong),
-		COUNT(*) FILTER (WHERE s.is_gambling AND s.verified_status IS NULL AND NOT strong AND s.priority='High'),
+		COUNT(*) FILTER (WHERE s.is_gambling AND COALESCE(s.market, 'id') <> 'intl' AND s.verified_status IS NULL AND NOT strong),
+		COUNT(*) FILTER (WHERE s.is_gambling AND COALESCE(s.market, 'id') <> 'intl' AND s.verified_status IS NULL AND NOT strong AND s.priority='High'),
 		COUNT(*) FILTER (WHERE s.verified_status='judol'),
 		COUNT(*) FILTER (WHERE s.verified_status='bukan_judol'),
-		COUNT(*) FILTER (WHERE s.is_gambling AND s.verified_status IS NULL AND NOT strong AND s.priority='Medium'),
-		COUNT(*) FILTER (WHERE s.is_gambling AND s.verified_status IS NULL AND NOT strong AND s.priority='Low'),
-		COUNT(*) FILTER (WHERE s.is_gambling AND s.verified_status IS NULL AND strong)
+		COUNT(*) FILTER (WHERE s.is_gambling AND COALESCE(s.market, 'id') <> 'intl' AND s.verified_status IS NULL AND NOT strong AND s.priority='Medium'),
+		COUNT(*) FILTER (WHERE s.is_gambling AND COALESCE(s.market, 'id') <> 'intl' AND s.verified_status IS NULL AND NOT strong AND s.priority='Low'),
+		COUNT(*) FILTER (WHERE s.is_gambling AND COALESCE(s.market, 'id') <> 'intl' AND s.verified_status IS NULL AND strong)
 		FROM sites s CROSS JOIN LATERAL (SELECT `+StrongEvidenceSQL+` AS strong) x`).Scan(&a, &b, &c, &d, &e, &f, &m)
 	out["pending"], out["pending_high"], out["verified_judol"], out["verified_not"] = a, b, c, d
 	out["pending_medium"], out["pending_low"], out["machine_confirmed"] = e, f, m

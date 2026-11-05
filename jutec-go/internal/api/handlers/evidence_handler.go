@@ -155,10 +155,20 @@ func (h *EvidenceHandler) File(c *gin.Context) {
 		return
 	}
 	name := c.Param("name")
+	// Bukti baru menyimpan screenshot sebagai JPEG; tautan lama "screenshot-*.png" tetap berlaku
+	alt := ""
+	if strings.HasPrefix(name, "screenshot-") {
+		if strings.HasSuffix(name, ".png") {
+			alt = strings.TrimSuffix(name, ".png") + ".jpg"
+		} else if strings.HasSuffix(name, ".jpg") {
+			alt = strings.TrimSuffix(name, ".jpg") + ".png"
+		}
+	}
 	for _, f := range ec.Files {
-		if f.Name == name {
+		if f.Name == name || (alt != "" && f.Name == alt) {
+			name = f.Name
 			c.Set("audit_target", fmt.Sprintf("evidence:%d", ec.ID))
-			inline := strings.HasSuffix(name, ".png") && c.Query("download") == ""
+			inline := (strings.HasSuffix(name, ".png") || strings.HasSuffix(name, ".jpg")) && c.Query("download") == ""
 			if !inline {
 				c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="bukti-%d-%s"`, ec.ID, name))
 			}

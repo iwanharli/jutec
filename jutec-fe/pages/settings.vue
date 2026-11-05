@@ -101,7 +101,8 @@
                     <UToggle :model-value="s.value === 'true'" size="lg" :loading="saving === s.key" @update:model-value="toggleBool(s)" />
                   </template>
                   <template v-else>
-                    <UInput v-model="s.value" :type="isNum(s.value) ? 'number' : 'text'" class="w-36" :ui="{ base: 'font-mono text-right' }" @keyup.enter="save(s)" />
+                    <UInput v-model="s.value" :type="s.key.includes('password') ? 'password' : isNum(s.value) && !s.key.startsWith('probe') ? 'number' : 'text'"
+                      :class="s.key.startsWith('probe') ? 'w-64' : 'w-36'" :ui="{ base: s.key.startsWith('probe') ? 'font-mono' : 'font-mono text-right' }" @keyup.enter="save(s)" />
                     <UButton icon="i-lucide-save" :loading="saving === s.key" label="Simpan" @click="save(s)" />
                   </template>
                 </div>
@@ -157,7 +158,8 @@ const groupDefs = [
 ]
 const groups = computed(() => groupDefs.map(def => ({
   ...def,
-  settings: settings.value.filter(s => def.prefix ? s.key.startsWith(def.prefix) : !groupDefs.some(d => d.prefix && s.key.startsWith(d.prefix))),
+  // Data dummy uji form (probe_*) diatur di halaman Form Daftar & Login
+  settings: settings.value.filter(s => !s.key.startsWith('probe_') && !['sweep_daily_last', 'sweep_daily_offset'].includes(s.key)).filter(s => def.prefix ? s.key.startsWith(def.prefix) : !groupDefs.some(d => d.prefix && s.key.startsWith(d.prefix))),
 })))
 
 const missingRequired = computed(() => apiKeys.value.filter(k => k.required && !k.set).length)

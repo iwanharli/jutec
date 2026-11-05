@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -57,44 +58,41 @@ func (h *SweepJobHandler) Start(c *gin.Context) {
 		return
 	}
 
-	// Cek apakah sudah ada job yang running/paused
-	if active, err := h.PG.GetActiveSweepJob(c.Request.Context()); err == nil && active != nil {
-		c.JSON(http.StatusConflict, gin.H{
-			"error":  "job already running or paused",
-			"job_id": active.ID,
-			"status": active.Status,
-		})
+	jobID, activeID, err := h.launch(c.Request.Context(), unique, service.DeepSweepConfig{MaxDepth: req.MaxDepth, MaxURLs: req.MaxURLs})
+	if activeID != "" {
+		c.JSON(http.StatusConflict, gin.H{"error": "job already running or paused", "job_id": activeID})
 		return
 	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"job_id": jobID, "status": "running"})
+}
 
-	jobID := fmt.Sprintf("sweep-%d", time.Now().UnixMilli())
-	cfg := service.DeepSweepConfig{MaxDepth: req.MaxDepth, MaxURLs: req.MaxURLs}
+// launch memulai Deep Sweep sebagai job latar (dipakai tombol manual & jadwal harian).
+// activeID terisi bila sudah ada job yang berjalan/dijeda — job baru tidak dibuat.
+func (h *SweepJobHandler) launch(ctx context.Context, keywords []string, cfg service.DeepSweepConfig) (jobID, activeID string, err error) {
+	if active, e := h.PG.GetActiveSweepJob(ctx); e == nil && active != nil {
+		return "", active.ID, nil
+	}
+	jobID = fmt.Sprintf("sweep-%d", time.Now().UnixMilli())
 	if cfg.MaxDepth <= 0 {
 		cfg.MaxDepth = 3
 	}
 	if cfg.MaxURLs <= 0 {
 		cfg.MaxURLs = 500
 	}
+	h.PG.CreateSweepJob(ctx, jobID, keywords, map[string]any{"max_depth": cfg.MaxDepth, "max_urls": cfg.MaxURLs})
 
-	// Simpan ke DB
-	h.PG.CreateSweepJob(c.Request.Context(), jobID, unique, map[string]any{
-		"max_depth": cfg.MaxDepth,
-		"max_urls":  cfg.MaxURLs,
-	})
-
-	// Buat job context + state
 	jobCtx, cancelFn := context.WithCancel(context.Background())
-	jobState := service.GlobalJobManager.Register2(jobID, cancelFn)
-
-	// Jalankan di goroutine
+	service.GlobalJobManager.Register2(jobID, cancelFn)
 	go func() {
 		defer service.GlobalJobManager.Remove(jobID)
-		_, err := h.DiscoverySvc.DeepSweepJob(jobCtx, jobID, unique, cfg)
-		status := "done"
-		errMsg := ""
+		_, err := h.DiscoverySvc.DeepSweepJob(jobCtx, jobID, keywords, cfg)
+		status, errMsg := "done", ""
 		if err != nil {
-			status = "error"
-			errMsg = err.Error()
+			status, errMsg = "error", err.Error()
 		}
 		bgCtx := context.Background()
 		h.PG.FinishSweepJob(bgCtx, jobID, status, errMsg)
@@ -102,9 +100,7 @@ func (h *SweepJobHandler) Start(c *gin.Context) {
 			h.Enricher.Run(bgCtx)
 		}
 	}()
-
-	_ = jobState
-	c.JSON(http.StatusOK, gin.H{"job_id": jobID, "status": "running"})
+	return jobID, "", nil
 }
 
 // POST /sweep/:id/pause
@@ -172,4 +168,56 @@ func (h *SweepJobHandler) Active(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"job": job})
+}
+
+// StartDailyScheduler: cek tiap 10 menit — pada jam yang diatur (sweep_daily_hour), jalankan satu Deep Sweep
+// per hari dengan N keyword bawaan yang dirotasi (sweep_daily_offset), sehingga seluruh daftar tercakup bergiliran.
+func (h *SweepJobHandler) StartDailyScheduler() {
+	go func() {
+		for {
+			h.dailyTick(context.Background())
+			time.Sleep(10 * time.Minute)
+		}
+	}()
+}
+
+func (h *SweepJobHandler) dailyTick(ctx context.Context) {
+	if !h.PG.GetSettingBool(ctx, "sweep_daily_enabled", false) {
+		return
+	}
+	now := time.Now()
+	today := now.Format("2006-01-02")
+	if now.Hour() != h.PG.GetSettingInt(ctx, "sweep_daily_hour", 2) || h.PG.GetSetting(ctx, "sweep_daily_last") == today {
+		return
+	}
+	all := h.DiscoverySvc.LoadDefaultKeywords(ctx)
+	if len(all) == 0 {
+		return
+	}
+	n := h.PG.GetSettingInt(ctx, "sweep_daily_keywords", 20)
+	if n > len(all) {
+		n = len(all)
+	}
+	off := h.PG.GetSettingInt(ctx, "sweep_daily_offset", 0) % len(all)
+	if off < 0 {
+		off = 0
+	}
+	kws := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		kws = append(kws, all[(off+i)%len(all)])
+	}
+	cfg := service.DeepSweepConfig{MaxDepth: h.PG.GetSettingInt(ctx, "sweep_daily_depth", 2), MaxURLs: h.PG.GetSettingInt(ctx, "sweep_daily_max_urls", 300)}
+	jobID, activeID, err := h.launch(ctx, kws, cfg)
+	if activeID != "" {
+		log.Printf("⏭️  [Sweep Harian] dilewati — masih ada sweep %s berjalan", activeID)
+		return // coba lagi di cek berikutnya (masih jam yang sama)
+	}
+	if err != nil {
+		log.Printf("⚠️  [Sweep Harian] gagal mulai: %v", err)
+		return
+	}
+	h.PG.SetSetting(ctx, "sweep_daily_last", today)
+	h.PG.SetSetting(ctx, "sweep_daily_offset", strconv.Itoa((off+n)%len(all)))
+	h.PG.Audit(ctx, "otomatis", "", "sweep.daily.started", jobID, 200, map[string]any{"keywords": n, "offset": off})
+	log.Printf("🌙 [Sweep Harian] %s dimulai — %d keyword (mulai #%d dari %d)", jobID, n, off+1, len(all))
 }

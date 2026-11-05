@@ -93,6 +93,12 @@
               <NuxtLink :to="`/site/${r.id}`" target="_blank" class="text-[15px] font-semibold text-slate-100 hover:text-primary-300 break-all">
                 {{ host(r.url) }}
               </NuxtLink>
+              <UTooltip text="Buka situs di tab baru">
+                <a :href="r.url" target="_blank" rel="noopener noreferrer"
+                  class="inline-flex items-center justify-center w-6 h-6 -ml-1 rounded-md text-slate-500 hover:text-primary-300 hover:bg-slate-800">
+                  <UIcon name="i-lucide-external-link" class="w-3.5 h-3.5" />
+                </a>
+              </UTooltip>
               <PriorityBadge :priority="r.priority" />
               <span class="text-[13px] tabular-nums text-slate-400">{{ Math.round(r.confidence * 100) }}%</span>
               <UBadge v-if="lifeMeta[r.lifecycle]" :color="lifeMeta[r.lifecycle].color" variant="subtle" size="xs">{{ lifeMeta[r.lifecycle].label }}</UBadge>
@@ -131,7 +137,7 @@
               <UButton class="flex-1 justify-center" size="sm" color="emerald" variant="soft" icon="i-lucide-shield-check" label="Bukan"
                 :loading="busy === r.id + 'b'" @click.stop="decide(r, 'bukan_judol')" />
               <UTooltip text="Buka detail (O)">
-                <UButton size="sm" color="gray" variant="ghost" icon="i-lucide-external-link" :to="`/site/${r.id}`" target="_blank" />
+                <UButton size="sm" icon="i-lucide-panel-right-open" :to="`/site/${r.id}`" target="_blank" />
               </UTooltip>
             </div>
           </div>

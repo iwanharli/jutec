@@ -16,7 +16,7 @@
     <!-- ── 2. KPI dengan tren ── -->
     <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
       <StatCard label="Judol Beroperasi" :value="k.live ?? '—'" icon="i-lucide-globe" color="indigo"
-        :delta="ov ? k.live - k.live_prev : null" up-is-bad :hint="ov ? `${fmt(k.inactive)} tidak aktif · ${fmt(k.total)} tercatat` : ''" />
+        :delta="ov ? k.live - k.live_prev : null" up-is-bad :hint="ov ? `${fmt(k.inactive)} tidak aktif · ${fmt(k.total)} tercatat${k.injected ? ` · +${fmt(k.injected)} susupan` : ''}${k.intl ? ` · +${fmt(k.intl)} judi asing` : ''}` : ''" />
       <StatCard label="Baru 7 Hari" :value="k.new_7d ?? '—'" icon="i-lucide-sparkles" color="rose"
         :delta="ov ? k.new_7d - k.new_prev_7d : null" up-is-bad />
       <StatCard label="Diblokir 7 Hari" :value="k.blocked_7d ?? '—'" icon="i-lucide-shield-ban" color="emerald"

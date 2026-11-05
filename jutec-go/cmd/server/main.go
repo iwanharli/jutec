@@ -101,11 +101,14 @@ func main() {
 		mux.HandleFunc(tasks.TypeAutoCrypto, auto.Crypto)
 		mux.HandleFunc(tasks.TypeAutoTrustPositif, auto.TrustPositif)
 		mux.HandleFunc(tasks.TypeAutoCommonCrawl, auto.CommonCrawl)
+		mux.HandleFunc(tasks.TypeAutoTakeover, auto.TakeoverCheck)
+		mux.HandleFunc(tasks.TypeAutoEvidenceRetention, auto.EvidenceRetention)
 		mux.HandleFunc(tasks.TypeAutoCluster, auto.Cluster)
 		mux.HandleFunc(tasks.TypeAutoOrigin, auto.Origin)
 		mux.HandleFunc(tasks.TypeAutoWayback, auto.Wayback)
 		mux.HandleFunc(tasks.TypeAutoReach, auto.Reach)
 		mux.HandleFunc(tasks.TypeEvidenceCapture, (&tasks.EvidenceHandler{PG: postgresDB, BaseDir: cfg.EvidenceDir}).ProcessTask)
+		mux.HandleFunc(tasks.TypeFormProbe, (&tasks.FormProbeHandler{PG: postgresDB, BaseDir: cfg.EvidenceDir}).ProcessTask)
 		mux.HandleFunc(tasks.TypeDeepSite,    (&tasks.DeepSiteHandler{PG: postgresDB, Client: w.Client}).ProcessTask)
 
 		go w.Start(mux)
@@ -132,7 +135,8 @@ func main() {
 			{"@every 30m", tasks.TypeAutoEvidence}, {"@every 1h", tasks.TypeAutoCluster},
 			{"@every 1h", tasks.TypeAutoOrigin}, {"@every 1h", tasks.TypeAutoWayback}, {"@every 2h", tasks.TypeAutoReach},
 			{"@every 1h", tasks.TypeAutoReverse}, {"@every 3h", tasks.TypeAutoCrypto},
-			{"@every 12h", tasks.TypeAutoTrustPositif}, {"@every 2h", tasks.TypeAutoCommonCrawl},
+			{"@every 12h", tasks.TypeAutoTrustPositif}, {"@every 2h", tasks.TypeAutoCommonCrawl}, {"@every 2h", tasks.TypeAutoTakeover},
+			{"@every 24h", tasks.TypeAutoEvidenceRetention},
 		} {
 			if _, err := scheduler.Register(j.spec, asynq.NewTask(j.typ, nil), asynq.Queue("low"), asynq.Unique(25*time.Minute)); err != nil {
 				log.Printf("Warning: Failed to register %s: %v", j.typ, err)

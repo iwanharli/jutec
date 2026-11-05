@@ -1,6 +1,10 @@
 package handlers
 
 import (
+	"context"
+	"io/fs"
+	"path/filepath"
+	"syscall"
 	"net/http"
 	"os"
 	"time"
@@ -40,7 +44,16 @@ func (h *OverviewHandler) Get(c *gin.Context) {
 }
 
 func (h *OverviewHandler) system() gin.H {
-	sys := gin.H{"redis": h.Inspector != nil, "queues": []queueStat{}, "servers": 0}
+	sys := gin.H{"redis": h.Inspector != nil, "queues": []queueStat{}, "servers": 0, "disk": diskInfo()}
+	if h.PG != nil {
+		ctx := context.Background()
+		sys["daily_sweep"] = gin.H{
+			"enabled":  h.PG.GetSettingBool(ctx, "sweep_daily_enabled", false),
+			"hour":     h.PG.GetSettingInt(ctx, "sweep_daily_hour", 2),
+			"keywords": h.PG.GetSettingInt(ctx, "sweep_daily_keywords", 20),
+			"last":     h.PG.GetSetting(ctx, "sweep_daily_last"),
+		}
+	}
 	if h.Inspector != nil {
 		names, err := h.Inspector.Queues()
 		if err != nil {
@@ -93,4 +106,34 @@ func (h *OverviewHandler) system() gin.H {
 	}
 	sys["api_keys"] = keys
 	return sys
+}
+
+// diskInfo: ruang disk tempat bukti forensik disimpan + ukuran folder bukti — penyebab utama pemakaian disk.
+func diskInfo() gin.H {
+	dir := os.Getenv("EVIDENCE_DIR")
+	if dir == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			dir = filepath.Join(home, ".jutec", "evidence")
+		}
+	}
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(dir, &st); err != nil {
+		return nil
+	}
+	var evidence int64
+	filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			if fi, e := d.Info(); e == nil {
+				evidence += fi.Size()
+			}
+		}
+		return nil
+	})
+	const gb = 1 << 30
+	return gin.H{
+		"free_gb":     float64(st.Bavail*uint64(st.Bsize)) / gb,
+		"total_gb":    float64(st.Blocks*uint64(st.Bsize)) / gb,
+		"evidence_mb": float64(evidence) / (1 << 20),
+		"low":         st.Bavail*uint64(st.Bsize) < 5*gb, // <5 GB: scan & bukti forensik bisa gagal
+	}
 }

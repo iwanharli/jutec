@@ -33,6 +33,7 @@ type SiteCore struct {
 	InternalPages  []string       `json:"internal_pages"`
 	AuthSurface    map[string]any `json:"auth_surface"`
 	Injection      map[string]any `json:"injection"` // crawler.Injection: tanda situs sah yang disusupi
+	Takeover       map[string]any `json:"takeover"` // wayback.Takeover: domain bekas situs sah
 	TPListed       *bool          `json:"tp_listed"` // terdaftar di daftar blokir TrustPositif (nil = belum dicek)
 	TPListedSince  *time.Time     `json:"tp_listed_since"`
 	TPCheckedAt    *time.Time     `json:"tp_checked_at"`
@@ -272,14 +273,14 @@ func (db *PostgresDB) GetSiteDetail(ctx context.Context, siteID int) (*SiteDetai
 		       app_promo, app_promo_evidence, app_promo_platforms, internal_pages, auth_surface, widget_links,
 		       verified_status, verified_by, verified_at, verified_note,
 		       reach_status, reach_checked_at, blocked_since,
-		       site_lifecycle(reach_status, status, offline_since), revived_at, role, entry_targets, `+siteCategorySQL+`, injection, tp_listed, tp_listed_since, tp_checked_at
+		       site_lifecycle(reach_status, status, offline_since), revived_at, role, entry_targets, `+siteCategorySQL+`, injection, takeover, tp_listed, tp_listed_since, tp_checked_at
 		FROM sites s WHERE id = $1`, siteID).Scan(
 		&s.ID, &s.URL, &s.Priority, &s.Confidence, &s.IsGambling,
 		&s.Status, &s.SimHash, &s.RescanCount, &s.CreatedAt, &s.LastScannedAt, &s.OfflineSince,
 		&s.AppPromo, &s.AppPromoEvid, &s.AppPromoPlat, &s.InternalPages, &s.AuthSurface, &s.WidgetLinks,
 		&s.VerifiedStatus, &s.VerifiedBy, &s.VerifiedAt, &s.VerifiedNote,
 		&s.ReachStatus, &s.ReachCheckedAt, &s.BlockedSince,
-		&s.Lifecycle, &s.RevivedAt, &s.Role, &s.EntryTargets, &s.Category, &s.Injection, &s.TPListed, &s.TPListedSince, &s.TPCheckedAt)
+		&s.Lifecycle, &s.RevivedAt, &s.Role, &s.EntryTargets, &s.Category, &s.Injection, &s.Takeover, &s.TPListed, &s.TPListedSince, &s.TPCheckedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -329,14 +330,16 @@ func (db *PostgresDB) GetSiteDetail(ctx context.Context, siteID int) (*SiteDetai
 		Malicious           bool
 		Score               int
 		ScannedAt           *time.Time
+		Source              string
 	}
 	if db.Pool.QueryRow(ctx, `
-		SELECT COALESCE(verdict, ''), COALESCE(malicious, false), COALESCE(score, 0), COALESCE(screenshot_url, ''), scanned_at
+		SELECT COALESCE(verdict, ''), COALESCE(malicious, false), COALESCE(score, 0), COALESCE(screenshot_url, ''), scanned_at,
+		       CASE WHEN scan_uuid LIKE 'cf:%' THEN 'Cloudflare' ELSE 'URLScan' END
 		FROM urlscan_results WHERE site_id = $1 ORDER BY created_at DESC LIMIT 1`, siteID).
-		Scan(&us.Verdict, &us.Malicious, &us.Score, &us.Screenshot, &us.ScannedAt) == nil {
+		Scan(&us.Verdict, &us.Malicious, &us.Score, &us.Screenshot, &us.ScannedAt, &us.Source) == nil {
 		d.Enrichment.URLScan = map[string]any{
 			"verdict": us.Verdict, "malicious": us.Malicious, "score": us.Score,
-			"screenshot_url": us.Screenshot, "scanned_at": us.ScannedAt,
+			"screenshot_url": us.Screenshot, "scanned_at": us.ScannedAt, "source": us.Source,
 		}
 	}
 	var vt struct {

@@ -56,6 +56,8 @@ type Overview struct {
 		BlockedPrev7d   int `json:"blocked_prev_7d"`
 		Died7d          int `json:"died_7d"`
 		ActiveOperators int `json:"active_operators"`
+		Injected        int `json:"injected"`
+		Intl            int `json:"intl"` // judi internasional yang masih beroperasi — tidak dihitung sebagai judol // situs sah yang disusupi (korban), masih beroperasi — tidak dihitung sebagai judol
 		ActiveMoney     int `json:"active_money"` // rekening/e-wallet/QRIS/kripto di situs beroperasi
 		Inactive        int `json:"inactive"`
 		Total           int `json:"total"`
@@ -112,28 +114,30 @@ func (db *PostgresDB) GetOverview(ctx context.Context) (*Overview, error) {
 		       COUNT(*) FILTER (WHERE NOT (`+liveSite+`) AND `+diedAt+` > NOW() - INTERVAL '7 days'),
 		       COUNT(*) FILTER (WHERE NOT (`+liveSite+`)),
 		       COUNT(*)
-		FROM sites s WHERE s.is_gambling`).Scan(&k.Live, &k.New7d, &k.NewPrev7d, &k.LiveHigh, &k.Blocked7d, &k.BlockedPrev7d, &k.Died7d, &k.Inactive, &k.Total)
+		FROM sites s WHERE site_is_judol(s.is_gambling, s.url, s.injection, s.market)`).Scan(&k.Live, &k.New7d, &k.NewPrev7d, &k.LiveHigh, &k.Blocked7d, &k.BlockedPrev7d, &k.Died7d, &k.Inactive, &k.Total)
 	if err != nil {
 		return nil, err
 	}
+	db.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM sites s WHERE s.is_gambling AND site_injected(s.url, s.injection) AND `+liveSite).Scan(&k.Injected)
+	db.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM sites s WHERE s.is_gambling AND s.market = 'intl' AND NOT site_injected(s.url, s.injection) AND `+liveSite).Scan(&k.Intl)
 	// Beroperasi 7 hari lalu ≈ sekarang − baru + yang mati dalam 7 hari
 	k.LivePrev = k.Live - k.New7d + k.Died7d
 
 	db.Pool.QueryRow(ctx, `
 		SELECT COUNT(DISTINCT so.operator_id) FROM site_operators so JOIN sites s ON s.id = so.site_id
-		WHERE s.is_gambling AND `+liveSite).Scan(&k.ActiveOperators)
+		WHERE site_is_judol(s.is_gambling, s.url, s.injection, s.market) AND `+liveSite).Scan(&k.ActiveOperators)
 	db.Pool.QueryRow(ctx, `
 		SELECT COUNT(DISTINCT a.id) FROM artifacts a JOIN site_artifacts sa ON sa.artifact_id = a.id JOIN sites s ON s.id = sa.site_id
-		WHERE a.type IN ('Bank','E-Wallet','VirtualAccount','QRIS','Crypto') AND s.is_gambling AND `+liveSite).Scan(&k.ActiveMoney)
+		WHERE a.type IN ('Bank','E-Wallet','VirtualAccount','QRIS','Crypto') AND site_is_judol(s.is_gambling, s.url, s.injection, s.market) AND `+liveSite).Scan(&k.ActiveMoney)
 
 	if o.Actions.Unverified, err = db.actionList(ctx,
-		`s.is_gambling AND s.verified_status IS NULL AND NOT `+StrongEvidenceSQL+` AND `+liveSite,
+		`site_is_judol(s.is_gambling, s.url, s.injection, s.market) AND s.verified_status IS NULL AND NOT `+StrongEvidenceSQL+` AND `+liveSite,
 		`s.created_at`, `s.confidence DESC, s.created_at DESC`); err != nil {
 		return nil, err
 	}
 	// Judol pasti (diverifikasi analis atau bukti kuat) + bukti forensik ada + masih bisa diakses biasa (belum diblokir)
 	if o.Actions.ReadyBlock, err = db.actionList(ctx,
-		`s.is_gambling AND s.verified_status IS DISTINCT FROM 'bukan_judol'
+		`site_is_judol(s.is_gambling, s.url, s.injection, s.market) AND s.verified_status IS DISTINCT FROM 'bukan_judol'
 		 AND (s.verified_status = 'judol' OR `+StrongEvidenceSQL+`)
 		 AND EXISTS (SELECT 1 FROM evidence_captures e WHERE e.site_id = s.id AND e.status = 'done')
 		 AND COALESCE(s.reach_status, 'online') = 'online' AND NOT COALESCE(s.tp_listed, false) AND `+liveSite,
@@ -141,17 +145,17 @@ func (db *PostgresDB) GetOverview(ctx context.Context) (*Overview, error) {
 		return nil, err
 	}
 	if o.Actions.Revived, err = db.actionList(ctx,
-		`s.is_gambling AND s.revived_at > NOW() - INTERVAL '30 days' AND `+liveSite,
+		`site_is_judol(s.is_gambling, s.url, s.injection, s.market) AND s.revived_at > NOW() - INTERVAL '30 days' AND `+liveSite,
 		`s.revived_at`, `s.revived_at DESC`); err != nil {
 		return nil, err
 	}
 	if o.Actions.BlockedAlive, err = db.actionList(ctx,
-		`s.is_gambling AND s.reach_status = 'blocked_alive'`,
+		`site_is_judol(s.is_gambling, s.url, s.injection, s.market) AND s.reach_status = 'blocked_alive'`,
 		`s.blocked_since`, `s.priority = 'High' DESC, s.blocked_since DESC NULLS LAST`); err != nil {
 		return nil, err
 	}
 	if o.Actions.NoEvidence, err = db.actionList(ctx,
-		`s.is_gambling AND s.priority = 'High' AND `+liveSite+` AND NOT EXISTS (SELECT 1 FROM evidence_captures e WHERE e.site_id = s.id AND e.status = 'done')`,
+		`site_is_judol(s.is_gambling, s.url, s.injection, s.market) AND s.priority = 'High' AND `+liveSite+` AND NOT EXISTS (SELECT 1 FROM evidence_captures e WHERE e.site_id = s.id AND e.status = 'done')`,
 		`s.created_at`, `s.confidence DESC, s.created_at DESC`); err != nil {
 		return nil, err
 	}
@@ -166,7 +170,7 @@ func (db *PostgresDB) GetOverview(ctx context.Context) (*Overview, error) {
 		return nil, err
 	}
 
-	rows, err := db.Pool.Query(ctx, `SELECT site_lifecycle(s.reach_status, s.status, s.offline_since), COUNT(*) FROM sites s WHERE s.is_gambling GROUP BY 1`)
+	rows, err := db.Pool.Query(ctx, `SELECT site_lifecycle(s.reach_status, s.status, s.offline_since), COUNT(*) FROM sites s WHERE site_is_judol(s.is_gambling, s.url, s.injection, s.market) GROUP BY 1`)
 	if err != nil {
 		return nil, err
 	}
@@ -181,9 +185,9 @@ func (db *PostgresDB) GetOverview(ctx context.Context) (*Overview, error) {
 	rows, err = db.Pool.Query(ctx, `
 		WITH days AS (SELECT generate_series(CURRENT_DATE - 29, CURRENT_DATE, INTERVAL '1 day')::date AS d)
 		SELECT to_char(d, 'YYYY-MM-DD'),
-		       (SELECT COUNT(*) FROM sites s WHERE s.is_gambling AND s.created_at::date = d),
-		       (SELECT COUNT(*) FROM sites s WHERE s.is_gambling AND NOT (`+liveSite+`) AND (`+diedAt+`)::date = d),
-		       (SELECT COUNT(*) FROM sites s WHERE s.is_gambling AND s.blocked_since::date = d)
+		       (SELECT COUNT(*) FROM sites s WHERE site_is_judol(s.is_gambling, s.url, s.injection, s.market) AND s.created_at::date = d),
+		       (SELECT COUNT(*) FROM sites s WHERE site_is_judol(s.is_gambling, s.url, s.injection, s.market) AND NOT (`+liveSite+`) AND (`+diedAt+`)::date = d),
+		       (SELECT COUNT(*) FROM sites s WHERE site_is_judol(s.is_gambling, s.url, s.injection, s.market) AND s.blocked_since::date = d)
 		FROM days ORDER BY d`)
 	if err != nil {
 		return nil, err
@@ -199,7 +203,7 @@ func (db *PostgresDB) GetOverview(ctx context.Context) (*Overview, error) {
 		SELECT o.id, COALESCE(NULLIF(o.name, ''), o.operator_key), o.platform,
 		       COUNT(*) FILTER (WHERE `+liveSite+`), COUNT(*)
 		FROM operators o JOIN site_operators so ON so.operator_id = o.id JOIN sites s ON s.id = so.site_id
-		WHERE s.is_gambling GROUP BY o.id HAVING COUNT(*) FILTER (WHERE `+liveSite+`) > 0
+		WHERE site_is_judol(s.is_gambling, s.url, s.injection, s.market) GROUP BY o.id HAVING COUNT(*) FILTER (WHERE `+liveSite+`) > 0
 		ORDER BY 4 DESC, 5 DESC LIMIT 5`); err != nil {
 		return nil, err
 	}
@@ -211,7 +215,7 @@ func (db *PostgresDB) GetOverview(ctx context.Context) (*Overview, error) {
 		SELECT 0, p, '', COUNT(*) FILTER (WHERE `+liveSite+`), COUNT(*)
 		FROM last JOIN sites s ON s.id = last.site_id,
 		     LATERAL jsonb_array_elements_text(CASE WHEN jsonb_typeof(last.gp) = 'array' THEN last.gp ELSE '[]' END) p
-		WHERE s.is_gambling GROUP BY p ORDER BY 4 DESC, 5 DESC LIMIT 5`); err != nil {
+		WHERE site_is_judol(s.is_gambling, s.url, s.injection, s.market) GROUP BY p ORDER BY 4 DESC, 5 DESC LIMIT 5`); err != nil {
 		return nil, err
 	}
 	// IP CDN (Cloudflare dkk.) dipakai ribuan situs tak terkait — tidak informatif, jadi dikecualikan
@@ -220,7 +224,7 @@ func (db *PostgresDB) GetOverview(ctx context.Context) (*Overview, error) {
 		       COUNT(*) FILTER (WHERE `+liveSite+`), COUNT(*)
 		FROM ips i JOIN site_ips si ON si.ip_id = i.id JOIN sites s ON s.id = si.site_id
 		LEFT JOIN ip_intel x ON x.ip = i.address
-		WHERE s.is_gambling AND COALESCE(x.data->>'cdn', '') = ''
+		WHERE site_is_judol(s.is_gambling, s.url, s.injection, s.market) AND COALESCE(x.data->>'cdn', '') = ''
 		GROUP BY i.id, x.data HAVING COUNT(*) FILTER (WHERE `+liveSite+`) > 1
 		ORDER BY 4 DESC, 5 DESC LIMIT 5`); err != nil {
 		return nil, err
@@ -233,7 +237,7 @@ func (db *PostgresDB) overviewArtifacts(ctx context.Context, tail, where string)
 		SELECT a.type, COALESCE(a.name, ''), a.value,
 		       COUNT(DISTINCT sa.site_id) FILTER (WHERE `+liveSite+`), COUNT(DISTINCT sa.site_id)
 		FROM artifacts a JOIN site_artifacts sa ON sa.artifact_id = a.id JOIN sites s ON s.id = sa.site_id
-		WHERE s.is_gambling `+where+` GROUP BY a.id `+tail)
+		WHERE site_is_judol(s.is_gambling, s.url, s.injection, s.market) `+where+` GROUP BY a.id `+tail)
 	if err != nil {
 		return nil, err
 	}

@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"jutec-go/internal/cfscan"
 	"log"
 	"net/url"
+	"time"
 
 	"jutec-go/internal/store"
 	"jutec-go/internal/urlscan"
@@ -32,9 +34,9 @@ func NewEnrichTask(siteID int, rawURL string) (*asynq.Task, error) {
 }
 
 type EnrichHandler struct {
-	URLScan    *urlscan.Client
-	VT         *virustotal.Client
-	PG         *store.PostgresDB
+	URLScan *urlscan.Client
+	VT      *virustotal.Client
+	PG      *store.PostgresDB
 }
 
 func NewEnrichHandler(us *urlscan.Client, vt *virustotal.Client, pg *store.PostgresDB) *EnrichHandler {
@@ -55,29 +57,43 @@ func (h *EnrichHandler) ProcessTask(ctx context.Context, t *asynq.Task) error {
 	}
 	domain := u.Hostname()
 
-	// --- URLScan ---
-	if h.URLScan != nil && h.URLScan.APIKey != "" {
-		result, err := h.URLScan.ScanURL(p.URL)
-		switch {
-		case errors.Is(err, urlscan.ErrRateLimit):
-			log.Printf("  ⚠️  [URLScan] Rate limit — skipping site %d", p.SiteID)
-		case err != nil:
-			log.Printf("  ⚠️  [URLScan] Error for %s: %v", p.URL, err)
-		case result != nil && result.UUID != "":
+	// --- Pemindai URL: URLScan.io, cadangan Cloudflare URL Scanner saat kena limit ---
+	// Hanya situs judi tanpa hasil 7 hari terakhir: ±70% situs terscan bukan judol & tak perlu kuota.
+	if h.PG.NeedsURLScan(ctx, p.SiteID) {
+		var result *urlscan.ScanResult
+		source := "URLScan"
+		if h.URLScan != nil && h.URLScan.APIKey != "" && !urlscan.InCooldown() {
+			r, err := h.URLScan.SearchExisting(domain) // scan publik yang sudah ada: tanpa kuota
+			if err == nil && r == nil {
+				r, err = h.URLScan.ScanURL(p.URL)
+			}
+			switch {
+			case errors.Is(err, urlscan.ErrRateLimit):
+				urlscan.SetCooldown(15 * time.Minute)
+				log.Printf("  ⏸️  [URLScan] Rate limit — jeda 15 menit, beralih ke Cloudflare")
+			case err != nil:
+				log.Printf("  ⚠️  [URLScan] Error for %s: %v", p.URL, err)
+			default:
+				result = r
+			}
+		}
+		if result == nil && cfscan.Configured() {
+			r, err := cfscan.Scan(p.URL)
+			if err != nil {
+				log.Printf("  ⚠️  [Cloudflare URL Scanner] %s: %v", p.URL, err)
+			} else {
+				result, source = r, "Cloudflare"
+			}
+		}
+		if result != nil && result.UUID != "" {
 			rec := &store.URLScanRecord{
-				ScanUUID:      result.UUID,
-				Verdict:       result.Verdict,
-				Malicious:     result.Malicious,
-				Score:         result.Score,
-				ScreenshotURL: result.ScreenshotURL,
-				Categories:    result.Categories,
-				Technologies:  result.Technologies,
-				ScannedAt:     result.ScannedAt,
+				ScanUUID: result.UUID, Verdict: result.Verdict, Malicious: result.Malicious, Score: result.Score,
+				ScreenshotURL: result.ScreenshotURL, Categories: result.Categories, Technologies: result.Technologies, ScannedAt: result.ScannedAt,
 			}
 			if err := h.PG.SaveURLScanResult(ctx, p.SiteID, rec); err != nil {
-				log.Printf("  ⚠️  [URLScan] Failed to save result: %v", err)
+				log.Printf("  ⚠️  [%s] Failed to save result: %v", source, err)
 			} else {
-				log.Printf("  ✅ [URLScan] %s → verdict=%s score=%d", p.URL, result.Verdict, result.Score)
+				log.Printf("  ✅ [%s] %s → verdict=%s score=%d", source, p.URL, result.Verdict, result.Score)
 			}
 		}
 	}

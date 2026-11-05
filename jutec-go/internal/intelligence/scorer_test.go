@@ -115,3 +115,25 @@ func TestInjectedSites(t *testing.T) {
 		t.Errorf("cloaking harus judol High: %+v", s)
 	}
 }
+
+func TestBankWithoutKeywordsNotGambling(t *testing.T) {
+	// Situs hosting: rekening pembayaran + WhatsApp, tanpa kata kunci judi (kasus jagoweb.com)
+	a := &crawler.AnalysisResult{Confidence: 0.4, FoundPatterns: []string{"whatsapp", "tele"},
+		Artifacts: []crawler.TransactionArtifact{{Type: "Bank", Name: "BCA", Value: "0000000001"}, {Type: "Contact", Name: "WhatsApp", Value: "6280000000001"}}}
+	if s := Compute(a, 0.2, "https://www.jagoweb.com", 0, 0); s.IsGambling {
+		t.Errorf("situs hosting dengan rekening tanpa kata kunci judi tidak boleh judol: %+v", s)
+	}
+}
+
+func TestHostnameIgnoredWhenContentClean(t *testing.T) {
+	// gacor-6.warlordchicago.com: halaman terbaca (dialihkan ke steakhouse), 0 kata kunci
+	a := &crawler.AnalysisResult{Links: &crawler.ExtractedLinks{Total: 23}, RedirectChain: []string{"https://gacor-6.warlordchicago.com", "https://barranchco.com/"}}
+	if s := Compute(a, 0.2, "https://gacor-6.warlordchicago.com", 0, 0); s.IsGambling {
+		t.Errorf("nama host saja dengan konten bersih tidak boleh judol: %+v", s)
+	}
+	// Konten tak terbaca (diblokir) — nama host tetap dihitung
+	b := &crawler.AnalysisResult{Links: &crawler.ExtractedLinks{Total: 0}}
+	if s := Compute(b, 0.2, "https://casino-n1.com", 0, 0); !s.IsGambling {
+		t.Errorf("nama host judol dengan konten tak terbaca tetap judol: %+v", s)
+	}
+}

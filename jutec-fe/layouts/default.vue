@@ -105,7 +105,7 @@ const nav: NavItem[] = [
   { label: 'Network Graph', to: '/network', icon: 'i-lucide-waypoints' },
   { label: 'Investigasi', icon: 'i-lucide-microscope', children: [
     { label: 'Reverse Lookup', to: '/reverse-lookup', icon: 'i-lucide-scan-search', desc: 'Cari situs lain dari IP, rekening, tracking ID, dll.' },
-    { label: 'Form Pendaftaran', to: '/form-daftar', icon: 'i-lucide-clipboard-list', desc: 'Field, bank & pola form daftar situs judol valid' },
+    { label: 'Form Daftar & Login', to: '/form-daftar', icon: 'i-lucide-clipboard-list', desc: 'Field, bank & pola form daftar situs judol valid' },
     { label: 'Leak / Identitas', to: '/leak', icon: 'i-lucide-fingerprint', desc: 'Pemilik nomor HP & NIK dari data bocoran' },
   ] },
 ]

@@ -85,15 +85,33 @@ export function buildSiteReportHtml(d: SiteReportData) {
   if (inj?.detected) {
     sec('Indikasi Penyusupan', [
       kv([
-        ['Kesimpulan', '<b>Situs tampak sah, tetapi menyimpan konten judol yang disembunyikan dari pengunjung biasa.</b>'],
+        ['Kesimpulan', '<b>Situs korban penyusupan — bukan milik operator judol.</b> Konten judol disembunyikan dari pengunjung biasa untuk mendongkrak peringkat situs judol di Google.'],
+        ['Mempromosikan', inj.cloak_brand ? `<b>${esc(inj.cloak_brand)}</b>` : ''],
+        ['Judul untuk Google', inj.cloak_title ? esc(inj.cloak_title) : ''],
+        ['Tujuan judol', (inj.cloak_targets ?? []).map(mono).join('<br>')],
         ['Cloaking', inj.cloaking ? `Ya — konten judol hanya disajikan ke ${inj.cloak_via === 'googlebot' ? 'Googlebot (mesin pencari)' : 'pengunjung yang datang dari Google'}` : 'Tidak terdeteksi'],
         ['Dialihkan ke', inj.cloak_redirect ? mono(inj.cloak_redirect) : ''],
         ['Kata kunci versi tersembunyi', (inj.cloak_keywords ?? []).map((k: string) => chip(k, 'rose')).join(' ')],
+        ['Subdomain disalahgunakan', inj.signals?.includes('subdomain_abuse') ? `Subdomain bernama judol didaftarkan di DNS domain sah ${mono(inj.parent_url)}${inj.parent_title ? ` (“${esc(inj.parent_title)}”)` : ''}, saat dicek tidak menampilkan judi.${inj.sibling_hosts?.length ? ` Subdomain serupa: ${inj.sibling_hosts.map(mono).join(', ')}` : ''}` : ''],
+        ['Parasite SEO', inj.parent_url && !inj.signals?.includes('subdomain_abuse') ? `Halaman judol ditumpangkan di domain sah; beranda pemilik bersih: ${mono(inj.parent_url)}${inj.parent_title ? ` — “${esc(inj.parent_title)}”` : ''}` : ''],
         ['Link judol tersembunyi', inj.hidden_links ? `${inj.hidden_links} dari ${inj.judol_links} link judol ke domain lain disembunyikan (di luar layar, ukuran 0, atau tidak ditampilkan)` : ''],
         ['Domain tujuan', (inj.hidden_hosts ?? []).map(mono).join(', ')],
       ]),
       inj.hidden_samples?.length ? `<h3>Contoh link tersembunyi</h3><ul class="plain">${inj.hidden_samples.map((x: string) => `<li>${mono(x)}</li>`).join('')}</ul>` : '',
     ].join(''), 'Tindak lanjut: beri tahu pengelola situs / CSIRT instansi agar celah ditutup, dan telusuri domain tujuan sebagai situs judol')
+  }
+
+  // ── Domain bekas situs sah
+  const tk = s.takeover
+  if (tk?.detected) {
+    const ym = (ts?: string) => ts ? new Date(`${ts.slice(0, 4)}-${ts.slice(4, 6)}-01`).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }) : '—'
+    sec('Riwayat Domain', kv([
+      ['Kesimpulan', `<b>Domain bekas situs sah yang kini dipakai judol.</b> Biasanya domain kedaluwarsa yang didaftarkan ulang operator untuk menumpang reputasinya di Google.`],
+      ['Dulu', `${esc(tk.legit_title || '—')} <span class="muted">(${ym(tk.first_seen)} – ${ym(tk.legit_until)})</span>`],
+      ['Arsip situs sah', tk.legit_url ? mono(tk.legit_url) : ''],
+      ['Dipakai judol sejak', `${ym(tk.judol_since)}`],
+      ['Arsip judol', tk.judol_url ? mono(tk.judol_url) : ''],
+    ]), 'Sumber: Internet Archive (Wayback Machine). Pemilik lama bukan pelaku; data pendaftar baru dapat diminta ke registrar.')
   }
 
   // ── Dasar skor
@@ -337,7 +355,7 @@ footer.end { margin-top: 24px; padding-top: 8px; border-top: 1px solid #cbd5e1; 
   <div class="brand"><span>Jutec · Laporan Investigasi</span><span>${esc(reportId)}</span></div>
   <h1>${esc(d.host)}</h1>
   <div class="url mono">${esc(s.url)}</div>
-  <div class="chips">${chip(status.t, status.c)}${s.priority ? chip(`Prioritas ${s.priority}`) : ''}${s.reach_status ? chip(d.reachLabels[s.reach_status]?.label ?? s.reach_status) : ''}${s.category && s.category !== 'clean' && s.category !== 'unclear' ? chip(SITE_CATEGORY[s.category]?.label.toUpperCase() ?? '', s.category === 'betting' ? 'rose' : 'gray') : ''}${s.app_promo ? chip('Promosi APK') : ''}${s.lifecycle === 'inactive' ? chip('TIDAK AKTIF') : ''}${s.revived_at ? chip(`Hidup lagi ${fmtDay(s.revived_at)}`, 'rose') : ''}${s.verified_status ? chip(`Verifikasi: ${s.verified_status}`) : ''}${s.tp_listed ? chip(`Terdaftar TrustPositif${s.tp_listed_since ? ' sejak ' + fmtDay(s.tp_listed_since) : ''}`, 'green') : s.tp_checked_at && s.is_gambling ? chip('Belum di daftar blokir Komdigi', 'amber') : ''}${s.injection?.detected ? chip('SITUS DISUSUPI', 'violet') : ''}</div>
+  <div class="chips">${chip(status.t, status.c)}${s.priority ? chip(`Prioritas ${s.priority}`) : ''}${s.reach_status ? chip(d.reachLabels[s.reach_status]?.label ?? s.reach_status) : ''}${s.category && s.category !== 'clean' && s.category !== 'unclear' ? chip(SITE_CATEGORY[s.category]?.label.toUpperCase() ?? '', s.category === 'betting' ? 'rose' : 'gray') : ''}${s.app_promo ? chip('Promosi APK') : ''}${s.lifecycle === 'inactive' ? chip('TIDAK AKTIF') : ''}${s.revived_at ? chip(`Hidup lagi ${fmtDay(s.revived_at)}`, 'rose') : ''}${s.verified_status ? chip(`Verifikasi: ${s.verified_status}`) : ''}${s.tp_listed ? chip(`Terdaftar TrustPositif${s.tp_listed_since ? ' sejak ' + fmtDay(s.tp_listed_since) : ''}`, 'green') : s.tp_checked_at && s.is_gambling ? chip('Belum di daftar blokir Komdigi', 'amber') : ''}${s.injection?.detected ? chip('SITUS DISUSUPI', 'violet') : ''}${s.takeover?.detected ? chip('DOMAIN BEKAS', 'amber') : ''}</div>
 </div>
 <div class="kpis">${kpis.map(([k, v]) => `<div class="kpi"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div>
 <div class="meta">

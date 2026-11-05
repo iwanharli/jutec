@@ -190,6 +190,21 @@ func Compute(analysis *crawler.AnalysisResult, domainRisk float64, rawURL string
 			break
 		}
 	}
+	// Nama host hanya berarti bila konten tak terbaca. Halaman yang terbaca jelas tanpa satu pun kata
+	// kunci judi — atau dialihkan ke domain lain — bukan bukti (mis. gacor-6.warlordchicago.com → steakhouse).
+	if hostnameScore > 0 && len(analysis.FoundKeywords) == 0 {
+		readable := analysis.Links != nil && analysis.Links.Total >= 10
+		redirected := false
+		if n := len(analysis.RedirectChain); n > 0 {
+			if fu, err := url.Parse(analysis.RedirectChain[n-1]); err == nil {
+				fh := strings.TrimPrefix(strings.ToLower(fu.Hostname()), "www.")
+				redirected = fh != "" && fh != host && !strings.HasSuffix(host, "."+fh)
+			}
+		}
+		if readable || redirected {
+			hostnameScore = 0
+		}
+	}
 
 	contentScore := analysis.Confidence + urlPathScore
 	if contentScore > 1.0 {
@@ -232,9 +247,14 @@ func Compute(analysis *crawler.AnalysisResult, domainRisk float64, rawURL string
 	// Situs sah yang disusupi: cloaking atau spam link judol tersembunyi. Konten judol di sub-path
 	// domain institusi (/wp-content/slot-gacor/) dengan konten kuat juga tanda susupan.
 	injected := analysis.Injection != nil && analysis.Injection.Detected
+	// Subdomain bernama judol di domain sah yang kini tak menampilkan judi: korban, cukup Medium
+	subdomainAbuseOnly := injected && len(analysis.Injection.Signals) == 1 && analysis.Injection.Signals[0] == "subdomain_abuse"
 	injectedPath := isGovEdu && urlPathScore > 0 && contentScore >= 0.5
 
 	switch {
+	case subdomainAbuseOnly:
+		priority = "Medium"
+		rule = "injected"
 	case injected || injectedPath:
 		priority = "High"
 		rule = "injected"
@@ -287,13 +307,25 @@ func Compute(analysis *crawler.AnalysisResult, domainRisk float64, rawURL string
 	} else {
 		// "Rekening" tanpa konten judi sama sekali (situs bank, berita keuangan) bukan bukti judol
 		// Konten judi kuat (≥70% = minimal 2 kata kunci) cukup — landing page judol sering tanpa rekening/provider
-		isGambling = final >= 0.4 || hasStrongContent || (hasStrongArtifact && contentScore >= 0.2) || hasHostnameSignal || injected
+		// Rekening + konten hanya sah bila ada minimal satu kata kunci judi: situs hosting/toko yang
+		// mencantumkan rekening pembayaran + tombol WhatsApp (pola "whatsapp"/"tele") bukan judol.
+		hasGamblingKeyword := len(analysis.FoundKeywords) > 0
+		isGambling = final >= 0.4 || hasStrongContent || (hasStrongArtifact && contentScore >= 0.2 && hasGamblingKeyword) || hasHostnameSignal || injected
 	}
 	// High hanya untuk situs yang dinilai judol; sinyal kuat tanpa vonis judol (mis. berita
 	// pemberantasan judol di situs pemerintah) cukup Medium agar tetap ditinjau tanpa terlihat pasti judol.
 	if !isGambling && priority == "High" {
 		priority = "Medium"
 		rule = "not_gambling_cap"
+	}
+
+	// Skor tampil harus sejalan dengan prioritas: High tidak boleh tampil "39%" (prioritas High bisa
+	// datang dari konten kuat walau rumus berbobot menghasilkan angka kecil).
+	switch {
+	case priority == "High" && final < 0.75:
+		final = 0.75
+	case priority == "Medium" && final < 0.45:
+		final = 0.45
 	}
 
 	return &Score{

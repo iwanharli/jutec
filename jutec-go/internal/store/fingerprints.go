@@ -55,3 +55,9 @@ func (db *PostgresDB) SaveInjection(ctx context.Context, siteID int, inj any, de
 	_, err := db.Pool.Exec(ctx, `UPDATE sites SET injection = $2 WHERE id = $1`, siteID, inj)
 	return err
 }
+
+// SaveMarket: pasar sasaran situs judi ('id' | 'intl'), lihat crawler.Market.
+func (db *PostgresDB) SaveMarket(ctx context.Context, siteID int, market string) error {
+	_, err := db.Pool.Exec(ctx, `UPDATE sites SET market = NULLIF($2, '') WHERE id = $1`, siteID, market)
+	return err
+}

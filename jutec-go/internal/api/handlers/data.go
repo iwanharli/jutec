@@ -1,9 +1,13 @@
 package handlers
 
 import (
+	"encoding/csv"
+	"fmt"
 	"jutec-go/internal/store"
 	"net/http"
+	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -52,18 +56,25 @@ func (h *DataHandler) GetSites(c *gin.Context) {
 		offset = 0
 	}
 
-	if limit > 200 {
+	csvOut := c.Query("format") == "csv"
+	if limit > 200 && !csvOut {
 		limit = 200
+	}
+	if csvOut {
+		limit, offset = 10000, 0
 	}
 	f := store.SiteFilter{
 		Priority: priority, Query: q, Limit: limit, Offset: offset,
-		Status:       c.Query("status"),
-		Lifecycle:    c.Query("lifecycle"),
-		Category:     c.Query("category"),
-		ArtifactType: c.Query("artifact_type"),
-		HasApp:       c.Query("has_app") == "true",
-		Sort:         c.DefaultQuery("sort", "last_scanned_at"),
-		Desc:         c.DefaultQuery("order", "desc") != "asc",
+		Status:        c.Query("status"),
+		Lifecycle:     c.Query("lifecycle"),
+		Category:      c.Query("category"),
+		TP:            c.Query("tp"),
+		JudolOnly:     c.Query("judol_only") == "1",
+		GroupByDomain: c.Query("group") == "domain" && c.Query("format") != "csv",
+		ArtifactType:  c.Query("artifact_type"),
+		HasApp:        c.Query("has_app") == "true",
+		Sort:          c.DefaultQuery("sort", "last_scanned_at"),
+		Desc:          c.DefaultQuery("order", "desc") != "asc",
 	}
 	if isGamblingStr != "" {
 		val := isGamblingStr == "true"
@@ -79,6 +90,10 @@ func (h *DataHandler) GetSites(c *gin.Context) {
 		return
 	}
 
+	if csvOut {
+		writeSitesCSV(c, sites)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"results": sites, "total": total, "category_counts": h.PG.SiteCategoryCounts(c.Request.Context(), f.Lifecycle)})
 }
 
@@ -242,4 +257,25 @@ func (h *DataHandler) GetTelegram(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"total": total, "count": len(channels), "results": channels})
+}
+
+// writeSitesCSV: ekspor daftar situs sesuai filter (mis. judol yang belum ada di TrustPositif untuk diajukan).
+func writeSitesCSV(c *gin.Context, sites []store.RecentSite) {
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="jutec-situs-%s.csv"`, time.Now().Format("20060102-1504")))
+	c.Writer.WriteString("\ufeff") // BOM agar Excel membaca UTF-8
+	w := csv.NewWriter(c.Writer)
+	w.Write([]string{"id", "url", "domain", "jenis", "prioritas", "confidence", "status", "trustpositif", "ditemukan", "scan_terakhir"})
+	for _, s := range sites {
+		tp := "belum dicek"
+		if s.TPListed != nil {
+			tp = map[bool]string{true: "terdaftar", false: "belum terdaftar"}[*s.TPListed]
+		}
+		host := s.URL
+		if u, err := url.Parse(s.URL); err == nil {
+			host = u.Hostname()
+		}
+		w.Write([]string{strconv.Itoa(s.ID), s.URL, host, s.Category, s.Priority, fmt.Sprintf("%.2f", s.Confidence), s.Status, tp, s.CreatedAt, s.LastScannedAt})
+	}
+	w.Flush()
 }

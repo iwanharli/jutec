@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -180,7 +181,7 @@ func (c *Client) FetchResult(uuid string) (*ScanResult, error) {
 			Domain string `json:"domain"`
 		} `json:"page"`
 		Task struct {
-			Time       string `json:"time"`
+			Time          string `json:"time"`
 			ScreenshotURL string `json:"screenshotURL"`
 		} `json:"task"`
 		Meta struct {
@@ -242,8 +243,6 @@ func (c *Client) ScanURL(rawURL string) (*ScanResult, error) {
 	}
 	// Kuota "search" (1000/hari) terpisah dari kuota submit — kalau search habis, tetap submit scan baru
 
-
-
 	// 2. Submit scan baru
 	uuid, err := c.Submit(rawURL)
 	if err != nil {
@@ -264,4 +263,22 @@ func (c *Client) ScanURL(rawURL string) (*ScanResult, error) {
 
 	// Scan terlalu lama — simpan UUID tanpa result, bisa di-fetch manual
 	return &ScanResult{UUID: uuid, Verdict: "unknown"}, nil
+}
+
+// Jeda bersama setelah kena rate limit — semua pemanggil (enrich per situs & AutoEnrich) menahan diri.
+var (
+	cooldownMu    sync.Mutex
+	cooldownUntil time.Time
+)
+
+func InCooldown() bool {
+	cooldownMu.Lock()
+	defer cooldownMu.Unlock()
+	return time.Now().Before(cooldownUntil)
+}
+
+func SetCooldown(d time.Duration) {
+	cooldownMu.Lock()
+	cooldownUntil = time.Now().Add(d)
+	cooldownMu.Unlock()
 }

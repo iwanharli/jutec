@@ -255,7 +255,10 @@ func (db *PostgresDB) GetPhoneArtifactsNotEnriched(ctx context.Context) ([]struc
 		 WHERE a.type IN ('Contact', 'E-Wallet')
 		   AND a.value ~ '^\d{10,15}$'
 		   AND NOT EXISTS (SELECT 1 FROM leak_kominfo lk WHERE lk.artifact_id = a.id)
-		   AND NOT EXISTS (SELECT 1 FROM leak_enrichment_attempts la WHERE la.artifact_id = a.id)
+		   AND a.value ~ '^(62|0)8[1-9][0-9]{6,10}$' -- hanya nomor HP Indonesia: nomor asing/tak valid membuat token diblokir sementara
+		   -- Percobaan gagal (mis. kena jeda server) diulang setelah 6 jam; hasil kosong/sukses tidak diulang
+		   AND NOT EXISTS (SELECT 1 FROM leak_enrichment_attempts la WHERE la.artifact_id = a.id
+		                   AND (la.status <> 'error' OR la.attempted_at > NOW() - INTERVAL '6 hours'))
 		 ORDER BY a.id`)
 	if err != nil {
 		return nil, err

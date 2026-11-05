@@ -138,18 +138,20 @@ func Capture(ctx context.Context, dir string, captureID, siteID int, url, reques
 		chromedp.Sleep(6*time.Second), // beri waktu skrip/popup judol tampil
 		chromedp.Location(&finalURL),
 		chromedp.OuterHTML("html", &html, chromedp.ByQuery),
-		chromedp.FullScreenshot(&desktopPNG, 100), // kualitas 100 → PNG tanpa kompresi lossy
+		// JPEG kualitas 85: ±80% lebih kecil dari PNG, teks tetap terbaca. Hash SHA-256 dihitung dari file
+		// yang disimpan, jadi keabsahan bukti tetap terjamin.
+		chromedp.FullScreenshot(&desktopPNG, 85),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("gagal memuat halaman: %w", err)
 	}
 	// Tampilan HP (banyak situs judol menampilkan konten berbeda di HP)
 	_ = chromedp.Run(tab,
-		emulation.SetDeviceMetricsOverride(412, 915, 2.6, true),
+		emulation.SetDeviceMetricsOverride(412, 915, 2, true),
 		emulation.SetUserAgentOverride(MobileUA).WithPlatform("Android"),
 		chromedp.Reload(),
 		chromedp.Sleep(3*time.Second),
-		chromedp.FullScreenshot(&mobilePNG, 100),
+		chromedp.FullScreenshot(&mobilePNG, 85),
 	)
 	m.FinalURL = finalURL
 
@@ -166,9 +168,9 @@ func Capture(ctx context.Context, dir string, captureID, siteID int, url, reques
 		name, kind string
 		data       []byte
 	}
-	items := []item{{"page.html", "html", []byte(html)}, {"screenshot-desktop.png", "screenshot", desktopPNG}}
+	items := []item{{"page.html", "html", []byte(html)}, {"screenshot-desktop.jpg", "screenshot", desktopPNG}}
 	if len(mobilePNG) > 0 {
-		items = append(items, item{"screenshot-mobile.png", "screenshot", mobilePNG})
+		items = append(items, item{"screenshot-mobile.jpg", "screenshot", mobilePNG})
 	}
 	items = append(items, item{"network.json", "network", netJSON})
 

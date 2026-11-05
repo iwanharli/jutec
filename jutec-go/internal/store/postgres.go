@@ -33,12 +33,26 @@ func (db *PostgresDB) Close() {
 	db.Pool.Close()
 }
 
+// existingURL: bila situs yang sama sudah tersimpan dengan beda scheme/www (http vs https, www vs tanpa),
+// pakai URL baris itu agar tidak terbentuk baris ganda.
+func (db *PostgresDB) existingURL(ctx context.Context, url string) string {
+	var u string
+	db.Pool.QueryRow(ctx, `SELECT url FROM sites
+		WHERE regexp_replace(lower(rtrim(url, '/')), '^https?://(www\.)?', '') = regexp_replace(lower(rtrim($1, '/')), '^https?://(www\.)?', '')
+		ORDER BY id LIMIT 1`, url).Scan(&u)
+	if u == "" {
+		return url
+	}
+	return u
+}
+
 // SaveScanResult menyimpan hasil scan dan mengembalikan site_id untuk keperluan linking artifacts.
 func (db *PostgresDB) SaveScanResult(ctx context.Context, url string, isGambling bool, priority string, confidence float64, status string, result interface{}) (int, error) {
 	// Bentuk kanonik di titik simpan: apa pun jalur pemanggilnya, satu situs = satu baris
 	if c, err := urlnorm.Canonical(url); err == nil {
 		url = c
 	}
+	url = db.existingURL(ctx, url)
 	var siteID int
 	// Konflik dicek pada indeks unik kanonik lower(rtrim(url,'/')) — varian penulisan memperbarui baris yang ada
 	err := db.Pool.QueryRow(ctx, `
@@ -68,6 +82,7 @@ func (db *PostgresDB) SaveScanFailure(ctx context.Context, url string, result in
 	if c, err := urlnorm.Canonical(url); err == nil {
 		url = c
 	}
+	url = db.existingURL(ctx, url)
 	var siteID int
 	err := db.Pool.QueryRow(ctx, `
 		INSERT INTO sites (url, is_gambling, priority, confidence, status, last_scanned_at)
@@ -87,7 +102,7 @@ func (db *PostgresDB) GetSiteID(ctx context.Context, rawURL string) int {
 	if c, err := urlnorm.Canonical(rawURL); err == nil {
 		rawURL = c
 	}
-	db.Pool.QueryRow(ctx, `SELECT id FROM sites WHERE lower(rtrim(url, '/')) = $1`, urlnorm.Key(rawURL)).Scan(&id)
+	db.Pool.QueryRow(ctx, `SELECT id FROM sites WHERE lower(rtrim(url, '/')) = $1`, urlnorm.Key(db.existingURL(ctx, rawURL))).Scan(&id)
 	return id
 }
 

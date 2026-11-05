@@ -396,6 +396,8 @@
       </div>
 
       <SiteInjectionCard v-if="tab === 'ringkasan' && site.injection?.detected" :inj="site.injection" />
+      <SiteTakeoverCard v-if="tab === 'ringkasan' && site.takeover?.detected" :t="site.takeover" />
+      <SiteFormProbeCard v-if="tab === 'ringkasan' && site.is_gambling" :site-id="site.id" :site-url="site.url" />
 
       <SiteRoleCard v-if="tab === 'ringkasan' && detail.role_links" :role="site.role" :links="detail.role_links" />
 
@@ -993,7 +995,7 @@
               <span v-else class="text-slate-500">belum ada data</span>
             </div>
             <div class="flex items-center justify-between gap-3">
-              <span class="text-slate-400">URLScan</span>
+              <span class="text-slate-400">{{ detail.enrichment.urlscan?.source === 'Cloudflare' ? 'Cloudflare URL Scanner' : 'URLScan' }}</span>
               <span v-if="detail.enrichment.urlscan" class="text-slate-200">{{ detail.enrichment.urlscan.verdict || '—' }} · skor {{ detail.enrichment.urlscan.score }}</span>
               <span v-else class="text-slate-500">belum ada data</span>
             </div>

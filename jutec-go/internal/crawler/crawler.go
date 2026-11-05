@@ -175,6 +175,19 @@ func (c *Crawler) process(url string, dbKeywords []WeightedKeyword, depth int, m
 			}
 		}
 	}
+	// Parasite SEO: konten judol kuat di subdomain/path domain sah yang berandanya bersih
+	if mobilePass && result.Confidence >= 0.5 && (inj == nil || !inj.Cloaking) {
+		if p := c.DetectParasite(ctx, finalURL, dbKeywords); p != nil {
+			if inj == nil {
+				inj = &Injection{}
+			}
+			inj.ParentURL, inj.ParentTitle = p.ParentURL, p.ParentTitle
+		}
+	}
+	// Subdomain bernama judol di domain sah tanpa konten judi (DNS disalahgunakan)
+	if mobilePass && inj == nil {
+		inj = c.DetectSubdomainAbuse(ctx, url, result, dbKeywords)
+	}
 	result.Injection = finalizeInjection(inj, hiddenSpam)
 	if result.Injection != nil && result.Injection.Detected {
 		log.Printf("  🕳️  [Injection] %v · tersembunyi %d/%d · cloak %q", result.Injection.Signals, result.Injection.HiddenLinks, result.Injection.JudolLinks, result.Injection.CloakVia)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"jutec-go/internal/validin"
 	"net"
 	"net/http"
 	"net/url"
@@ -21,7 +22,7 @@ type OriginCandidate struct {
 	IP       string   `json:"ip"`
 	CDN      bool     `json:"cdn"`      // true = masih IP CDN (bukan kandidat origin)
 	Evidence []string `json:"evidence"` // mis. "A mail.x.com", "MX → mx1.x.com", "URLScan 2025-03-02"
-	Sources  []string `json:"sources"`  // subdomain | mx | urlscan | apex
+	Sources  []string `json:"sources"`  // subdomain | mx | urlscan | dns_history | apex
 	LastSeen string   `json:"last_seen,omitempty"`
 }
 
@@ -130,6 +131,25 @@ func FindOrigin(ctx context.Context, domain, urlscanKey string) (*OriginReport, 
 		} else {
 			for _, h := range hist {
 				add(h.ip, "URLScan "+h.seen[:10]+" ("+h.host+")", "urlscan", h.seen)
+			}
+		}
+	}
+
+	// 4b. Riwayat DNS dari Validin: IP yang dipakai domain sebelum pindah ke CDN
+	if validin.Configured() {
+		if hist, err := validin.AHistory(domain); err != nil {
+			rep.Notes = append(rep.Notes, "Riwayat DNS Validin tidak tersedia: "+err.Error())
+		} else {
+			for _, h := range hist {
+				seen := ""
+				if h.LastSeen > 0 {
+					seen = time.Unix(h.LastSeen, 0).UTC().Format(time.RFC3339)
+				}
+				ev := "Riwayat DNS (Validin)"
+				if seen != "" {
+					ev += " s.d. " + seen[:10]
+				}
+				add(h.IP, ev, "dns_history", seen)
 			}
 		}
 	}
